@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "cytrabackups-gametest",
+	"version": "1.0.0",
+	"name": "CytraBackups GameTests",
+	"authors": ["steelaspect"],
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": [
+			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest",
+			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest",
+			"dev.steelaspect.cytrabackups.gametest.GuiChannelGameTest"
+		],
+		"fabric-client-gametest": [
+			"dev.steelaspect.cytrabackups.gametest.GuiPreviewClientGameTest",
+			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest"
+		]
+	},
+	"depends": {
+		"cytrabackups": "*",
+		"fabric-gametest-api-v1": "*"
+	}
+}

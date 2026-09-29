@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "cytrabackups",
+	"version": "${version}",
+	"name": "CytraBackups",
+	"description": "Deduplicating world backups for technical servers: chunk-level dedup, zstd, scheduled backups with GFS pruning, safe full and partial (chunk) restores with recycle-bin rollback, off-site copies and Discord notifications. Server-side; the optional client GUI is in the same jar.",
+	"authors": [
+		"steelaspect"
+	],
+	"contact": {
+		"sources": "https://github.com/SteelAspect/cytrabackups"
+	},
+	"license": "MIT",
+	"icon": "assets/cytrabackups/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.steelaspect.cytrabackups.CytraBackups"
+		],
+		"client": [
+			"dev.steelaspect.cytrabackups.client.CytraBackupsClient"
+		]
+	},
+	"mixins": [
+		"cytrabackups.mixins.json"
+	],
+	"accessWidener": "cytrabackups.accesswidener",
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

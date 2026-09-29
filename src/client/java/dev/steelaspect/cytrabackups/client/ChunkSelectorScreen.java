@@ -2,13 +2,15 @@ package dev.steelaspect.cytrabackups.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import dev.steelaspect.cytrabackups.CytraBackups;
-import dev.steelaspect.cytrabackups.net.RequestPayload;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import java.util.ArrayList;
+import java.util.List;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -45,7 +47,9 @@ public final class ChunkSelectorScreen extends Screen {
 	private int cell = 8;
 	private Integer selX1, selZ1, selX2, selZ2;
 	private boolean dragging;
-	private EditBox x1Box, z1Box, x2Box, z2Box;
+	private EditBox x1Box, z1Box, x2Box, z2Box, radiusBox;
+	private String dimension; // dimension to restore in; the map is only drawn for the one the player is in
+	private String radiusText = "2";
 	private DynamicTexture map;
 	private int originX, originZ, span; // map texture covers chunks originX.. originX+span-1 (same for Z)
 	private final LongSet painted = new LongOpenHashSet();
@@ -64,15 +68,90 @@ public final class ChunkSelectorScreen extends Screen {
 			centerX = cp.x;
 			centerZ = cp.z;
 		}
+		String here = currentDimension();
+		if (dimension == null) dimension = here;
 		int y = height - 28;
 		int bw = 44;
 		x1Box = box(10, y, "x1");
 		z1Box = box(10 + bw + 4, y, "z1");
 		x2Box = box(10 + 2 * (bw + 4), y, "x2");
 		z2Box = box(10 + 3 * (bw + 4), y, "z2");
-		addRenderableWidget(Button.builder(Component.literal("Use coords"), b -> fromBoxes()).bounds(10 + 4 * (bw + 4), y, 70, 20).build());
-		addRenderableWidget(Button.builder(Component.literal("Restore selection..."), b -> confirm()).bounds(width - 230, y, 130, 20).build());
+		addRenderableWidget(Button.builder(Component.literal("Use coords"), b -> fromBoxes()).bounds(10 + 4 * (bw + 4), y, 70, 20)
+			.tooltip(Tooltip.create(Component.literal("Select the chunk rectangle typed in the boxes (chunk coordinates = block coordinates / 16)"))).build());
+		addRenderableWidget(Button.builder(Component.literal("Restore selection..."), b -> restore()).bounds(width - 230, y, 130, 20)
+			.tooltip(Tooltip.create(Component.literal("Restore the selected chunks from backup #" + backupId + ". The server asks you to confirm."))).build());
 		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(width - 95, y, 85, 20).build());
+
+		int y2 = height - 52;
+		List<String> dims = new ArrayList<>(ClientState.list != null ? ClientState.list.dimensions() : List.of());
+		if (!dims.contains(here) && !here.isEmpty()) dims.addFirst(here);
+		if (!dims.contains(dimension)) dimension = here;
+		if (!dims.isEmpty()) {
+			addRenderableWidget(CycleButton.<String>builder(Component::literal, dimension).withValues(dims)
+				.withTooltip(v -> Tooltip.create(Component.literal("Dimension to restore in. The map is only shown for the dimension you are in; "
+					+ "elsewhere, type chunk coordinates.")))
+				.create(10, y2, 200, 20, Component.literal("Dimension"), (btn, v) -> dimension = v));
+		}
+		radiusBox = new EditBox(font, 216, y2, 30, 20, Component.literal("radius"));
+		radiusBox.setMaxLength(2);
+		radiusBox.setFilter(t -> t.matches("\\d*"));
+		radiusBox.setValue(radiusText);
+		radiusBox.setResponder(t -> radiusText = t);
+		radiusBox.setTooltip(Tooltip.create(Component.literal("Radius in chunks (0-32) for Around me")));
+		addRenderableWidget(radiusBox);
+		addRenderableWidget(Button.builder(Component.literal("Around me"), b -> selectRadius()).bounds(250, y2, 80, 20)
+			.tooltip(Tooltip.create(Component.literal("Select the square of chunks within this radius of your position (like /backup restore <id> radius <r>)"))).build());
+		addRenderableWidget(Button.builder(Component.literal("Whole region"), b -> selectRegion()).bounds(334, y2, 90, 20)
+			.tooltip(Tooltip.create(Component.literal("Grow the selection to the whole region file (32x32 chunks) it starts in, or yours if nothing is "
+				+ "selected (like /backup restore <id> region ...)"))).build());
+		syncBoxes();
+	}
+
+	private String currentDimension() {
+		return minecraft.level == null ? "" : minecraft.level.dimension().identifier().toString();
+	}
+
+	private boolean showingMap() {
+		return dimension != null && dimension.equals(currentDimension());
+	}
+
+	private void selectRadius() {
+		if (minecraft.player == null) return;
+		int r;
+		try {
+			r = Math.min(32, Integer.parseInt(radiusBox.getValue().trim()));
+		} catch (NumberFormatException e) {
+			r = 0;
+		}
+		ChunkPos cp = minecraft.player.chunkPosition();
+		dimension = currentDimension();
+		selX1 = cp.x - r;
+		selZ1 = cp.z - r;
+		selX2 = cp.x + r;
+		selZ2 = cp.z + r;
+		centerX = cp.x;
+		centerZ = cp.z;
+		rebuildWidgets();
+	}
+
+	private void selectRegion() {
+		int cx, cz;
+		if (selX1 != null) {
+			cx = Math.min(selX1, selX2);
+			cz = Math.min(selZ1, selZ2);
+		} else if (minecraft.player != null) {
+			cx = minecraft.player.chunkPosition().x;
+			cz = minecraft.player.chunkPosition().z;
+		} else {
+			return;
+		}
+		int rx = Math.floorDiv(cx, 32), rz = Math.floorDiv(cz, 32);
+		selX1 = rx * 32;
+		selZ1 = rz * 32;
+		selX2 = rx * 32 + 31;
+		selZ2 = rz * 32 + 31;
+		centerX = rx * 32 + 16;
+		centerZ = rz * 32 + 16;
 		syncBoxes();
 	}
 
@@ -96,7 +175,7 @@ public final class ChunkSelectorScreen extends Screen {
 	}
 
 	private int gridH() {
-		return height - 24 - 40;
+		return height - 24 - 94;
 	}
 
 	private int cols() {
@@ -187,27 +266,18 @@ public final class ChunkSelectorScreen extends Screen {
 			centerX = (selX1 + selX2) / 2;
 			centerZ = (selZ1 + selZ2) / 2;
 		} catch (NumberFormatException e) {
-			ClientState.message = "Enter four chunk coordinates (x1 z1 x2 z2)";
-			ClientState.messageError = true;
-			ClientState.messageAt = System.currentTimeMillis();
+			ClientState.log(Component.literal("Enter four chunk coordinates (x1 z1 x2 z2)"), true);
 		}
 	}
 
-	private void confirm() {
-		if (selX1 == null || minecraft.level == null) return;
+	/** Runs /backup restore <id> chunks ...; the server shows the confirmation dialog and restores live or queues. */
+	private void restore() {
+		if (selX1 == null || dimension == null || dimension.isEmpty()) {
+			ClientState.log(Component.literal("Select chunks first: drag on the map, type coordinates, or use Around me / Whole region."), true);
+			return;
+		}
 		int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
-		long count = (long) (x2 - x1 + 1) * (z2 - z1 + 1);
-		String dim = minecraft.level.dimension().identifier().toString();
-		minecraft.setScreen(new ConfirmScreen(yes -> {
-			if (yes) {
-				ClientState.send(new RequestPayload(RequestPayload.RESTORE_CHUNKS, backupId, "", dim, x1, z1, x2, z2));
-				minecraft.setScreen(parent);
-			} else {
-				minecraft.setScreen(this);
-			}
-		}, Component.literal("Restore " + count + " chunk(s) from backup #" + backupId + "?"),
-			Component.literal("Chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " (" + blockRange(x1, z1, x2, z2) + ") in " + dim + ". Terrain, entities and POI are restored. "
-				+ "The server restores them live if nobody is nearby, otherwise it queues the restore for the next restart.")));
+		ClientState.run("backup restore " + backupId + " chunks " + dimension + " " + x1 + " " + z1 + " " + x2 + " " + z2);
 	}
 
 	static String blockRange(int x1, int z1, int x2, int z2) {
@@ -313,7 +383,7 @@ public final class ChunkSelectorScreen extends Screen {
 		int startX = centerX - cols / 2, startZ = centerZ - rows / 2;
 		// A handful of draw calls per frame: background, the map texture, region lines, selection and markers.
 		g.fill(left, top, right, bottom, 0xFF161616);
-		if (map != null) {
+		if (map != null && showingMap()) {
 			int mx = left + (originX - startX) * cell, my = top + (originZ - startZ) * cell, size = span * cell, tex = span * SAMPLES;
 			g.enableScissor(left, top, right, bottom);
 			g.blit(RenderPipelines.GUI_TEXTURED, MAP_TEXTURE, mx, my, 0, 0, size, size, tex, tex, tex, tex);
@@ -331,11 +401,20 @@ public final class ChunkSelectorScreen extends Screen {
 			}
 			String info = "Selected: chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " (" + ((long) (x2 - x1 + 1) * (z2 - z1 + 1)) + " chunks; "
 				+ blockRange(x1, z1, x2, z2) + ")";
-			g.drawString(font, info, 10, height - 40, 0xFFFFFFFF);
+			g.drawString(font, info, 10, height - 88, 0xFFFFFFFF);
 		} else {
-			g.drawString(font, "Drag to select chunks. Scroll = zoom, arrow keys = pan. Region borders are highlighted.", 10, height - 40, 0xFFA0A0A0);
+			g.drawString(font, "Drag to select chunks. Scroll = zoom, arrow keys = pan. Region borders are highlighted.", 10, height - 88, 0xFFA0A0A0);
 		}
-		if (minecraft.player != null) {
+		if (!showingMap()) {
+			g.drawCenteredString(font, "No map for " + dimension + " (you are in " + currentDimension() + "). Type chunk coordinates below.",
+				left + (right - left) / 2, top + (bottom - top) / 2, 0xFFA0A0A0);
+		}
+		ClientState.LogLine last = ClientState.lastLog();
+		if (last != null && System.currentTimeMillis() - last.at() < 30_000) {
+			List<net.minecraft.util.FormattedCharSequence> lines = font.split(last.text(), width - 20);
+			if (!lines.isEmpty()) g.drawString(font, lines.getFirst(), 10, height - 76, last.error() ? 0xFFFF5555 : 0xFFE0E0E0);
+		}
+		if (minecraft.player != null && showingMap()) {
 			ChunkPos pc = minecraft.player.chunkPosition();
 			int px = left + (pc.x - startX) * cell + cell / 2, py = top + (pc.z - startZ) * cell + cell / 2;
 			if (px >= left && py >= top && px < left + cols * cell && py < top + rows * cell) g.fill(px - 2, py - 2, px + 2, py + 2, 0xFFFFFFFF);

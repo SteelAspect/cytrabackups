@@ -110,7 +110,12 @@ public final class ConfigIO {
 		if (value == null || value instanceof String || value instanceof Number || value instanceof Boolean || value instanceof Enum<?>) {
 			sb.append(GSON.toJson(value));
 		} else if (value instanceof List<?> list) {
-			sb.append(GSON.toJson(list));
+			sb.append('[');
+			for (int i = 0; i < list.size(); i++) {
+				if (i > 0) sb.append(", ");
+				sb.append(GSON.toJson(list.get(i)));
+			}
+			sb.append(']');
 		} else if (value instanceof Map<?, ?> map) {
 			sb.append("{\n");
 			int i = 0;

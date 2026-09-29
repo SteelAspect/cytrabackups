@@ -94,10 +94,14 @@ public final class RegionFiles {
 	 */
 	public static void read(FileChannel ch, ChunkVisitor visitor) throws IOException {
 		long size = ch.size();
-		if (size < HEADER) throw new RegionFormatException("region file shorter than header (" + size + " bytes)");
+		// Like Minecraft, treat a missing/truncated header as zero-filled (0-byte region files are common).
 		ByteBuffer header = ByteBuffer.allocate(HEADER);
-		readFully(ch, header, 0);
-		header.flip();
+		if (size > 0) {
+			header.limit((int) Math.min(HEADER, size));
+			readFully(ch, header, 0);
+			header.limit(HEADER);
+		}
+		header.position(0);
 		int[] locations = new int[CHUNKS];
 		int[] timestamps = new int[CHUNKS];
 		for (int i = 0; i < CHUNKS; i++) locations[i] = header.getInt();
@@ -124,6 +128,20 @@ public final class RegionFiles {
 			readFully(ch, payload, start + 4);
 			visitor.visit(new ChunkSlot(i, timestamps[i], payload.array()));
 		}
+	}
+
+	/** Slot indices with a chunk, from the location table only (cheap; used for existence checks). */
+	public static java.util.BitSet presentIndices(Path file) throws IOException {
+		java.util.BitSet out = new java.util.BitSet(CHUNKS);
+		if (!Files.isRegularFile(file)) return out;
+		try (FileChannel ch = FileChannel.open(file, StandardOpenOption.READ)) {
+			if (ch.size() < SECTOR) return out;
+			ByteBuffer loc = ByteBuffer.allocate(SECTOR);
+			readFully(ch, loc, 0);
+			loc.flip();
+			for (int i = 0; i < CHUNKS; i++) if (loc.getInt() != 0) out.set(i);
+		}
+		return out;
 	}
 
 	public static List<ChunkSlot> readAll(Path file) throws IOException {

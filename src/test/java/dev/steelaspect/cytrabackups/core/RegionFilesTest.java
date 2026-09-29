@@ -39,6 +39,16 @@ class RegionFilesTest {
 	}
 
 	@Test
+	void emptyAndTruncatedRegionFilesHaveNoChunks() throws Exception {
+		Path empty = dir.resolve("r.2.2.mca");
+		Files.write(empty, new byte[0]);
+		assertEquals(0, RegionFiles.readAll(empty).size());
+		Path shortFile = dir.resolve("r.3.3.mca");
+		Files.write(shortFile, new byte[100]);
+		assertEquals(0, RegionFiles.readAll(shortFile).size());
+	}
+
+	@Test
 	void invalidRegionIsRejected() throws Exception {
 		Path f = dir.resolve("r.1.1.mca");
 		ByteBuffer b = ByteBuffer.allocate(RegionFiles.HEADER);

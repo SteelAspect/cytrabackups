@@ -42,7 +42,8 @@ public final class BackupRepository {
 	private final BlobStore blobs;
 	private final Map<Integer, BackupMeta> metas = new ConcurrentSkipListMap<>();
 	private RepositoryState state;
-	private volatile CachedManifest cachedManifest;
+	/** Soft so a huge world's manifest can be reclaimed under memory pressure; it is only a speed-up. */
+	private volatile java.lang.ref.SoftReference<CachedManifest> cachedManifest = new java.lang.ref.SoftReference<>(null);
 
 	private record CachedManifest(int id, Manifest manifest) {
 	}
@@ -154,7 +155,7 @@ public final class BackupRepository {
 		if (Files.exists(finalDir)) throw new IOException("Backup directory already exists: " + finalDir);
 		FileUtil.move(partial, finalDir, false);
 		metas.put(meta.id, meta);
-		cachedManifest = new CachedManifest(meta.id, manifest);
+		cachedManifest = new java.lang.ref.SoftReference<>(new CachedManifest(meta.id, manifest));
 	}
 
 	public void updateMeta(BackupMeta meta) throws IOException {
@@ -164,7 +165,7 @@ public final class BackupRepository {
 	}
 
 	public Manifest loadManifest(int id) throws IOException {
-		CachedManifest c = cachedManifest;
+		CachedManifest c = cachedManifest.get();
 		if (c != null && c.id == id) return c.manifest;
 		BackupMeta meta = metas.get(id);
 		if (meta == null) throw new NoSuchFileException("No backup #" + id);
@@ -179,7 +180,7 @@ public final class BackupRepository {
 		if (!meta.manifestSha256.isEmpty() && !meta.manifestSha256.equals(actual)) {
 			throw new IOException("Manifest of backup #" + id + " is corrupt (checksum mismatch)");
 		}
-		cachedManifest = new CachedManifest(id, m);
+		cachedManifest = new java.lang.ref.SoftReference<>(new CachedManifest(id, m));
 		return m;
 	}
 
@@ -199,13 +200,13 @@ public final class BackupRepository {
 			FileUtil.deleteRecursively(trash);
 		}
 		metas.remove(id);
-		CachedManifest c = cachedManifest;
-		if (c != null && c.id == id) cachedManifest = null;
+		CachedManifest c = cachedManifest.get();
+		if (c != null && c.id == id) cachedManifest.clear();
 	}
 
 	/** Invalidates the in-memory manifest cache (e.g. before verification, to force a disk read). */
 	public void dropCache() {
-		cachedManifest = null;
+		cachedManifest.clear();
 	}
 
 	static void writeHashes(java.io.OutputStream raw, List<Hash> hashes) throws IOException {

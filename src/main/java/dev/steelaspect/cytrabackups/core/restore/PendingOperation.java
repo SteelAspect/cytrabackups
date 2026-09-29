@@ -37,7 +37,7 @@ public final class PendingOperation {
 		return switch (type) {
 			case FULL_RESTORE -> "full restore of backup #" + backupId;
 			case CHUNK_RESTORE -> "chunk restore from backup #" + backupId + " (" + selection().describe() + " in " + dimension + ")";
-			case ROLLBACK -> "rollback of restore " + restoreId;
+			case ROLLBACK -> restoreId == null ? "rollback of the last restore" : "rollback of restore " + restoreId;
 		};
 	}
 }

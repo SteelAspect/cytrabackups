@@ -62,7 +62,7 @@ Output: **`build/libs/cytrabackups-1.0.0.jar`**, the mod jar with bundled librar
 - Unit tests: `./gradlew test`
 - Off-site integration tests: `./gradlew integrationTest`. These run against embedded S3, SFTP and WebDAV servers and are kept out of `build` because of their large test-only dependencies.
 - Headless server GameTests: `./gradlew runGameTest`. This starts a dedicated test server, runs the tests and exits non-zero on failure.
-- Client GameTest (real client, GUI and singleplayer): `xvfb-run -a ./gradlew runClientGameTest`, or without `xvfb-run` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`.
+- Client GameTest (real client, GUI and singleplayer): `./gradlew runClientGameTest` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`. It has not yet passed in a headless environment (see [Tests](#tests)).
 
 ## Commands
 
@@ -386,12 +386,14 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   3. full restore and rollback through the startup-restore code path (checking the block in the restored region NBT)
   4. modify again, unload the chunk, **live chunk restore**, then reload it and assert the original block is back
   5. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
-- **Client GameTest** (`runClientGameTest`): a real client with a singleplayer world, driven with mouse and keyboard.
-  - `/backupgui` opens the list.
-  - "Create backup" and "Pin" work.
-  - A drag-selected chunk restore in the map selector is queued, because the player is standing in the area.
-  - "Restore..." starts the countdown.
-  - A queued full restore is applied by the world-open mixin when the save is reopened.
+- **Client GameTest** (`runClientGameTest`, not yet verified): a real client with a singleplayer world, driven with mouse and keyboard. It is written to check that:
+  - `/backupgui` opens the list;
+  - "Create backup" and "Pin" work;
+  - a drag-selected chunk restore in the map selector is queued, because the player is standing in the area;
+  - "Restore..." starts the countdown;
+  - a queued full restore is applied by the world-open mixin when the save is reopened.
+
+  It has not passed in the headless build sandbox. There, under Xvfb with software OpenGL, the integrated server stalls at "Preparing spawn area: 16%" before the test code runs. Run it on a desktop, or check these steps by hand in game.
 - **Vanilla client** (no mod installed), checked with a [mineflayer](https://github.com/PrismarineJS/mineflayer) bot on protocol 1.21.11:
   - Non-ops cannot see `/backup`.
   - List rows carry `run_command`/`suggest_command` click events, and confirmations work by running the clicked command.

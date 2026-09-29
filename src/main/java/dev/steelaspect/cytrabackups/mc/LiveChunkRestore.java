@@ -37,13 +37,14 @@ import net.minecraft.world.level.chunk.storage.EntityStorage;
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 import net.minecraft.world.level.chunk.storage.SectionStorage;
 import net.minecraft.world.level.chunk.storage.SimpleRegionStorage;
+import net.minecraft.world.level.levelgen.structure.StructureCheck;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 
 /**
  * Live chunk restore. Chunks are only rewritten when Minecraft has fully unloaded them (no chunk holder, no
  * pending unload, no loaded entity sections), and the writes go through Minecraft's own region IO workers so
- * its in-memory region file state stays consistent. Cached entity/POI data for those chunks is evicted so the
- * next load reads the restored data.
+ * its in-memory region file state stays consistent. Cached entity, POI and structure-start data for those chunks
+ * is evicted so the next load reads the restored data.
  */
 public final class LiveChunkRestore {
 	private LiveChunkRestore() {
@@ -211,9 +212,13 @@ public final class LiveChunkRestore {
 			touched.add(w.pos());
 		}
 		SectionStorage<?, ?> poiSections = poi;
+		StructureCheck structures = level.structureCheck;
 		for (ChunkPos pos : touched) {
 			long k = pos.toLong();
 			cm.chunkTypeCache.remove(k);
+			// structure-start lookups for these chunks are re-read from the (restored) chunk data on next use
+			structures.loadedChunks.remove(k);
+			structures.featureChecks.values().forEach(checks -> checks.remove(k));
 			if (entityStorage != null) entityStorage.emptyChunks.remove(k);
 			synchronized (poiSections.loadLock) {
 				poiSections.loadedChunks.remove(k);

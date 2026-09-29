@@ -41,6 +41,8 @@ public final class OffsiteSync {
 		public LinkedHashSet<String> deleteKeys = new LinkedHashSet<>();
 		public long lastSuccess;
 		public String lastError = "";
+		/** Identity of the destination the "uploaded" state refers to; a different destination starts from scratch. */
+		public String targetId = "";
 	}
 
 	public record Result(int backupsUploaded, long blobsUploaded, long bytesUploaded, int deleted) {
@@ -100,6 +102,24 @@ public final class OffsiteSync {
 		saveIndex();
 	}
 
+	/**
+	 * Binds the upload state to a destination. When the destination changes (type, host, bucket, prefix, folder...),
+	 * everything is considered not uploaded there yet and pending remote deletions for the old one are dropped.
+	 * Returns true if the destination is new (the caller then queues every backup for it).
+	 */
+	public synchronized boolean bindTarget(String targetId) throws IOException {
+		if (targetId.equals(queue.targetId)) return false;
+		queue.targetId = targetId;
+		queue.uploaded.clear();
+		queue.deleteKeys.clear();
+		queue.lastSuccess = 0;
+		queue.lastError = "";
+		uploadedBlobs = new LongHashSet();
+		save();
+		saveIndex();
+		return true;
+	}
+
 	public synchronized boolean hasWork() {
 		return !queue.uploads.isEmpty() || !queue.deleteKeys.isEmpty();
 	}
@@ -111,6 +131,10 @@ public final class OffsiteSync {
 
 	/** Processes the queue against the target. Parallel uploads unless the target is SFTP (one channel). */
 	public Result process(OffsiteTarget target, ExecutorService workers, boolean parallel, Progress progress, CancelToken cancel) throws IOException {
+		if (bindTarget(target.id())) {
+			int n = enqueueMissing();
+			log.accept("New off-site destination " + target.describe() + ": queued all " + n + " backup(s) for upload");
+		}
 		int backups = 0;
 		long blobCount = 0, bytes = 0;
 		int deleted = 0;

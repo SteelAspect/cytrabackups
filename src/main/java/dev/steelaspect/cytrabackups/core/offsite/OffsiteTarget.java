@@ -13,6 +13,11 @@ public interface OffsiteTarget extends AutoCloseable {
 
 	String describe();
 
+	/** Stable identity of the destination (everything that decides where objects end up). */
+	default String id() {
+		return describe();
+	}
+
 	@Override
 	default void close() throws IOException {
 	}

@@ -159,10 +159,12 @@ public final class BackupCommands {
 		root.then(literal("export").requires(Perms.require(Perms.EXPORT))
 			.then(id("id").executes(c -> job(manager().export(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Exporting"))));
 
-		// The path is greedy so folders like "backups/old world.zip" work unquoted; add a comment later with /backup comment.
+		// "<path> [comment]": the first word is the path (quote it if it contains spaces), the rest is the comment.
 		root.then(literal("import").requires(Perms.require(Perms.ADMIN))
-			.then(argument("path", greedyString())
-				.executes(c -> job(manager().importWorld(getString(c, "path").trim(), "", c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Importing"))));
+			.then(argument("path_and_comment", greedyString()).executes(c -> {
+				String[] pc = splitPathAndComment(getString(c, "path_and_comment"));
+				return job(manager().importWorld(pc[0], pc[1], c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Importing");
+			})));
 
 		root.then(literal("prune").requires(Perms.require(Perms.PRUNE))
 			.executes(c -> job(manager().prune(false, c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Pruning"))
@@ -172,7 +174,7 @@ public final class BackupCommands {
 			.executes(c -> job(manager().garbageCollect(c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Collecting garbage")));
 
 		root.then(literal("status").requires(Perms.require(Perms.LIST)).executes(c -> {
-			for (Component line : manager().status()) c.getSource().sendSuccess(() -> line, false);
+			manager().sendStatus(c.getSource());
 			return 1;
 		}));
 
@@ -206,6 +208,18 @@ public final class BackupCommands {
 	private static int job(boolean started, CommandContext<CommandSourceStack> c, String what) {
 		if (started) c.getSource().sendSuccess(() -> Msg.info(what + "... progress: /backup status"), false);
 		return started ? 1 : 0;
+	}
+
+	/** Splits {@code path rest...} or {@code "quoted path" rest...} into {path, comment}. */
+	static String[] splitPathAndComment(String input) {
+		String in = input.trim();
+		if (in.startsWith("\"")) {
+			int end = in.indexOf('"', 1);
+			if (end > 0) return new String[]{in.substring(1, end), in.substring(end + 1).trim()};
+			return new String[]{in.substring(1), ""};
+		}
+		int space = in.indexOf(' ');
+		return space < 0 ? new String[]{in, ""} : new String[]{in.substring(0, space), in.substring(space + 1).trim()};
 	}
 
 	private static int create(CommandContext<CommandSourceStack> c, String comment) {
@@ -319,7 +333,7 @@ public final class BackupCommands {
 			{"pending [cancel|apply]", "Queued restore operation"},
 			{"verify <id>", "Check integrity without restoring"},
 			{"export <id>", "Standalone world .zip"},
-			{"import <path>", "Import a world folder or .zip (path relative to the server folder)"},
+			{"import <path> [comment]", "Import a world folder or .zip (path relative to the server folder; quote paths with spaces)"},
 			{"comment|pin|unpin|delete <id>", "Manage backups"},
 			{"prune [dryrun]", "Apply retention rules"},
 			{"gc", "Free unreferenced data"},

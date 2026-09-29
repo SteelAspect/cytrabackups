@@ -25,6 +25,16 @@ loom {
 	}
 }
 
+// Off-site integration tests run against real embedded servers (S3Proxy, Apache MINA SSHD, Tomcat WebDAV).
+// They live in their own source set without Minecraft on the classpath: ./gradlew integrationTest
+sourceSets {
+	integrationTest {
+		java.srcDir "src/integrationTest/java"
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
 // Headless GameTests live in src/gametest and run with `./gradlew runGameTest`.
 fabricApi {
 	configureTests {
@@ -57,6 +67,30 @@ dependencies {
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+
+	// the core only needs these at runtime outside Minecraft
+	integrationTestImplementation "com.google.code.gson:gson:2.13.2"
+	integrationTestImplementation "io.airlift:aircompressor:${project.aircompressor_version}"
+	integrationTestImplementation "com.github.mwiede:jsch:${project.jsch_version}"
+	integrationTestImplementation platform("org.junit:junit-bom:${project.junit_version}")
+	integrationTestImplementation "org.junit.jupiter:junit-jupiter"
+	integrationTestRuntimeOnly "org.junit.platform:junit-platform-launcher"
+	integrationTestImplementation "org.gaul:s3proxy:2.6.0"
+	integrationTestImplementation "org.apache.sshd:sshd-core:2.16.0"
+	integrationTestImplementation "org.apache.sshd:sshd-sftp:2.16.0"
+	integrationTestImplementation "org.apache.tomcat.embed:tomcat-embed-core:11.0.26"
+}
+
+tasks.register("integrationTest", Test) {
+	description = "Runs off-site copy tests against embedded S3, SFTP and WebDAV servers."
+	group = "verification"
+	testClassesDirs = sourceSets.integrationTest.output.classesDirs
+	classpath = sourceSets.integrationTest.runtimeClasspath
+	useJUnitPlatform()
+	testLogging {
+		events "passed", "skipped", "failed"
+		exceptionFormat "full"
+	}
 }
 
 processResources {

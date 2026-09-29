@@ -38,20 +38,50 @@ public final class WebDavTarget implements OffsiteTarget {
 		if (res.statusCode() / 100 != 2) throw new IOException("WebDAV PUT " + key + " failed: HTTP " + res.statusCode());
 	}
 
+	private final ConcurrentHashMap<String, Object> dirLocks = new ConcurrentHashMap<>();
+
+	private volatile boolean baseChecked;
+
+	/** Creates the configured base folder itself (one level) if it does not exist yet. */
+	private void ensureBase() throws IOException {
+		if (baseChecked) return;
+		synchronized (dirLocks.computeIfAbsent("", x -> new Object())) {
+			if (baseChecked) return;
+			if (!collectionExists("")) {
+				HttpResponse<Void> res = send(req("").method("MKCOL", HttpRequest.BodyPublishers.noBody()).build());
+				if (res.statusCode() != 201 && res.statusCode() != 405 && !collectionExists("")) {
+					throw new IOException("WebDAV base folder " + base + " does not exist and could not be created: HTTP " + res.statusCode());
+				}
+			}
+			baseChecked = true;
+		}
+	}
+
 	private void ensureParents(String key) throws IOException {
+		ensureBase();
 		String[] parts = key.split("/");
 		StringBuilder dir = new StringBuilder();
 		for (int i = 0; i < parts.length - 1; i++) {
 			dir.append(parts[i]).append('/');
 			String d = dir.toString();
 			if (knownDirs.contains(d)) continue;
-			HttpResponse<Void> res = send(req(d).method("MKCOL", HttpRequest.BodyPublishers.noBody()).build());
-			// 201 created, 405 already exists
-			if (res.statusCode() != 201 && res.statusCode() != 405 && res.statusCode() / 100 != 2) {
-				throw new IOException("WebDAV MKCOL " + d + " failed: HTTP " + res.statusCode());
+			// parallel uploads share parent folders: create each folder once, and treat "someone else just made it" as success
+			synchronized (dirLocks.computeIfAbsent(d, x -> new Object())) {
+				if (knownDirs.contains(d)) continue;
+				HttpResponse<Void> res = send(req(d).method("MKCOL", HttpRequest.BodyPublishers.noBody()).build());
+				int code = res.statusCode();
+				// 201 created, 405 already exists; 409 can mean a concurrent create or a missing parent, so re-check
+				if (code != 201 && code != 405 && code / 100 != 2 && !collectionExists(d)) {
+					throw new IOException("WebDAV MKCOL " + d + " failed: HTTP " + code);
+				}
+				knownDirs.add(d);
 			}
-			knownDirs.add(d);
 		}
+	}
+
+	private boolean collectionExists(String dir) throws IOException {
+		HttpResponse<Void> res = send(req(dir).header("Depth", "0").method("PROPFIND", HttpRequest.BodyPublishers.noBody()).build());
+		return res.statusCode() == 207 || res.statusCode() == 200;
 	}
 
 	@Override
@@ -69,6 +99,11 @@ public final class WebDavTarget implements OffsiteTarget {
 	@Override
 	public String describe() {
 		return "webdav " + URI.create(base).getHost();
+	}
+
+	@Override
+	public String id() {
+		return "webdav|" + base;
 	}
 
 	private HttpResponse<Void> send(HttpRequest r) throws IOException {

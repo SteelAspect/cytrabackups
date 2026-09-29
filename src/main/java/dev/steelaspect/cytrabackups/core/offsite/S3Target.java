@@ -84,6 +84,11 @@ public final class S3Target implements OffsiteTarget {
 		return "s3://" + bucket + "/" + prefix + " @ " + endpoint.getHost();
 	}
 
+	@Override
+	public String id() {
+		return "s3|" + endpoint + "|" + bucket + "|" + prefix + "|" + pathStyle;
+	}
+
 	private HttpResponse<String> send(HttpRequest req) throws IOException {
 		try {
 			return client.send(req, HttpResponse.BodyHandlers.ofString());

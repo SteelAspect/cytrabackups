@@ -604,50 +604,48 @@ public final class BackupManager {
 			});
 	}
 
-	public void pendingInfo(CommandSourceStack src) {
-		try {
-			PendingOperation op = PendingOperationRunner.readPending(services.storage);
-			if (op == null) {
-				src.sendSuccess(() -> Msg.info("Nothing is queued."), false);
-				return;
+	/** Reads the queued operation off the server thread and hands it (or an error) back on the server thread. */
+	private void withPending(CommandSourceStack src, java.util.function.Consumer<PendingOperation> onServer) {
+		async(() -> {
+			try {
+				PendingOperation op = PendingOperationRunner.readPending(services.storage);
+				server.execute(() -> {
+					if (op == null) src.sendFailure(Msg.error("Nothing is queued."));
+					else onServer.accept(op);
+				});
+			} catch (IOException e) {
+				server.execute(() -> src.sendFailure(Msg.error(e.getMessage())));
 			}
+		});
+	}
+
+	public void pendingInfo(CommandSourceStack src) {
+		withPending(src, op -> {
 			MutableComponent msg = Msg.info("Queued: " + op.describe() + " (by " + op.requestedBy + ", " + Formatting.ago(op.requestedAt, System.currentTimeMillis())
 				+ (op.reason.isBlank() ? "" : "; queued because " + op.reason) + "). ");
 			msg.append(Msg.run("Apply now", "/backup pending apply", "Countdown and stop the server", ChatFormatting.RED)).append(" ")
 				.append(Msg.run("Cancel", "/backup pending cancel", "Remove the queued operation", ChatFormatting.GRAY));
 			src.sendSuccess(() -> msg, false);
-		} catch (IOException e) {
-			src.sendFailure(Msg.error(e.getMessage()));
-		}
+		});
 	}
 
 	public void pendingCancel(CommandSourceStack src) {
-		try {
-			PendingOperation op = PendingOperationRunner.readPending(services.storage);
-			if (op == null) {
-				src.sendFailure(Msg.error("Nothing is queued."));
-				return;
+		withPending(src, op -> async(() -> {
+			try {
+				PendingOperationRunner.clearPending(services.storage);
+				server.execute(() -> src.sendSuccess(() -> Msg.success("Removed queued " + op.describe() + "."), true));
+			} catch (IOException e) {
+				server.execute(() -> src.sendFailure(Msg.error(e.getMessage())));
 			}
-			PendingOperationRunner.clearPending(services.storage);
-			src.sendSuccess(() -> Msg.success("Removed queued " + op.describe() + "."), true);
-		} catch (IOException e) {
-			src.sendFailure(Msg.error(e.getMessage()));
-		}
+		}));
 	}
 
 	public void pendingApply(CommandSourceStack src) {
-		try {
-			PendingOperation op = PendingOperationRunner.readPending(services.storage);
-			if (op == null) {
-				src.sendFailure(Msg.error("Nothing is queued."));
-				return;
-			}
+		withPending(src, op -> {
 			Feedback fb = Feedback.of(src).and(Feedback.console());
 			prompt(src, "Stop the server now to apply " + op.describe(), "Everyone is kicked after the countdown.",
 				() -> beginStopCountdown(op, "Applying " + op.describe(), fb));
-		} catch (IOException e) {
-			src.sendFailure(Msg.error(e.getMessage()));
-		}
+		});
 	}
 
 	// ------------------------------------------------------------------ maintenance
@@ -672,7 +670,10 @@ public final class BackupManager {
 			BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException("No backup #" + id));
 			if (m.pinned) throw new IOException("Backup #" + id + " is pinned");
 			services.repo.delete(id);
-			if (config.offsite.enabled && config.offsite.mirrorDeletes) offsite.enqueueDeleteBackup(id);
+			if (config.offsite.enabled && config.offsite.mirrorDeletes) {
+				offsite.enqueueDeleteBackup(id);
+				kickOffsite();
+			}
 			fb.success("Deleted backup #" + id + ". Unreferenced data is freed by the next prune or /backup gc.");
 		});
 	}
@@ -921,12 +922,13 @@ public final class BackupManager {
 			return;
 		}
 		async(() -> {
-			try {
+			try (OffsiteTarget target = createTarget(config)) {
+				offsite.bindTarget(target.id());
 				int n = offsite.enqueueMissing();
-				fb.success("Queued " + n + " backup(s) for upload to " + config.offsite.type + ".");
+				fb.success("Queued " + n + " backup(s) for upload to " + target.describe() + ".");
 				kickOffsite();
-			} catch (IOException e) {
-				fb.error(e.getMessage());
+			} catch (Exception e) {
+				fb.error("Off-site sync failed: " + rootMessage(e));
 			}
 		});
 	}
@@ -949,7 +951,8 @@ public final class BackupManager {
 
 	// ------------------------------------------------------------------ status
 
-	public List<Component> status() {
+	/** Server thread: snapshots in-memory state, then does the disk reads (free space, queue) off-thread. */
+	public void sendStatus(CommandSourceStack src) {
 		List<Component> lines = new ArrayList<>();
 		long now = System.currentTimeMillis();
 		Job job = currentJob.get();
@@ -971,15 +974,20 @@ public final class BackupManager {
 		RepositoryState st = services.repo.state();
 		lines.add(Msg.info(all.size() + " backups; last backup " + (st.lastBackup > 0 ? Formatting.ago(st.lastBackup, now) : "never")
 			+ "; next automatic backup " + nextBackupDescription(now) + "."));
-		long free = FileUtil.usableSpace(services.storage);
-		lines.add(Msg.info("Storage: " + services.storage + " (" + Formatting.bytes(free) + " free)"));
-		try {
-			PendingOperation op = PendingOperationRunner.readPending(services.storage);
-			if (op != null) lines.add(Msg.warn("Queued for restart: " + op.describe()));
-		} catch (IOException ignored) {
-		}
-		for (String s : offsiteStatus()) lines.add(Msg.info(s));
-		return lines;
+		List<String> offsiteLines = offsiteStatus();
+		async(() -> {
+			long free = FileUtil.usableSpace(services.storage);
+			lines.add(Msg.info("Storage: " + services.storage + " (" + Formatting.bytes(free) + " free)"));
+			try {
+				PendingOperation op = PendingOperationRunner.readPending(services.storage);
+				if (op != null) lines.add(Msg.warn("Queued for restart: " + op.describe()));
+			} catch (IOException ignored) {
+			}
+			for (String s : offsiteLines) lines.add(Msg.info(s));
+			server.execute(() -> {
+				for (Component line : lines) src.sendSuccess(() -> line, false);
+			});
+		});
 	}
 
 	private String nextBackupDescription(long now) {

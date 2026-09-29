@@ -139,6 +139,11 @@ public final class SftpTarget implements OffsiteTarget {
 	}
 
 	@Override
+	public String id() {
+		return "sftp|" + describe();
+	}
+
+	@Override
 	public synchronized void close() {
 		if (channel != null) channel.disconnect();
 		if (session != null) session.disconnect();

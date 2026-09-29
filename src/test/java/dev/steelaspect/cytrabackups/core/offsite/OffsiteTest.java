@@ -23,7 +23,7 @@ class OffsiteTest {
 	Path dir;
 
 	/** In-memory target recording uploads. */
-	static final class FakeTarget implements OffsiteTarget {
+	static class FakeTarget implements OffsiteTarget {
 		final Map<String, byte[]> objects = new ConcurrentHashMap<>();
 		int uploads;
 
@@ -79,6 +79,31 @@ class OffsiteTest {
 			assertFalse(t.objects.containsKey("backups/000001/meta.json"));
 			assertEquals(1, gc.deletedBlobs());
 			assertFalse(sync.hasWork());
+		}
+	}
+
+	@Test
+	void changingDestinationUploadsEverythingAgain() throws Exception {
+		try (TestWorlds w = new TestWorlds(dir)) {
+			w.populate();
+			BackupMeta a = w.backup("a").meta();
+			OffsiteSync sync = new OffsiteSync(w.repo, w.storage.resolve("offsite"), s -> {
+			});
+			FakeTarget first = new FakeTarget();
+			sync.process(first, w.workers, true, new Progress(), CancelToken.NONE); // first binding queues existing backups
+			assertTrue(first.objects.containsKey("backups/000001/meta.json"), "existing backups uploaded when off-site is first enabled");
+			FakeTarget second = new FakeTarget() {
+				@Override
+				public String id() {
+					return "second-destination";
+				}
+			};
+			sync.process(second, w.workers, true, new Progress(), CancelToken.NONE);
+			assertEquals(first.objects.keySet(), second.objects.keySet(), "a new destination receives a full copy");
+			int uploads = second.uploads;
+			sync.process(second, w.workers, true, new Progress(), CancelToken.NONE);
+			assertEquals(uploads, second.uploads, "nothing re-uploaded to the same destination");
+			assertEquals(a.id, sync.queue().uploaded.first());
 		}
 	}
 

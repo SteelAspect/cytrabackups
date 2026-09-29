@@ -1,6 +1,10 @@
 package dev.steelaspect.cytrabackups.client;
 
+import com.mojang.blaze3d.platform.NativeImage;
+import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.net.RequestPayload;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -9,8 +13,11 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -20,12 +27,17 @@ import net.minecraft.world.level.material.MapColor;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * Map-style chunk selector. Chunks the client has loaded are drawn from their top-block map colours; drag with
- * the left mouse button to select a rectangle, or type chunk coordinates. The selection is restored from the
- * chosen backup in the player's current dimension.
+ * Map-style chunk selector. Chunks the client has loaded are painted once into a small texture from their top-block
+ * map colours (a few hundred chunks per tick) and the map is drawn with a single blit, so the frame cost does not grow
+ * with the zoom level or screen size. Drag with the left mouse button to select a rectangle, or type chunk coordinates.
+ * The selection is restored from the chosen backup in the player's current dimension.
  */
 public final class ChunkSelectorScreen extends Screen {
-	private static final int SAMPLES = 4; // 4x4 colour samples per chunk
+	private static final int SAMPLES = 4; // map texels per chunk side (one texel = 4x4 blocks)
+	private static final int MAX_RADIUS = 35; // chunks; the client never keeps more than render distance 32 + 3
+	private static final int PAINT_BUDGET = 768; // chunks painted per tick
+	private static final int REPAINT_INTERVAL_TICKS = 100;
+	private static final Identifier MAP_TEXTURE = Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "chunk_selector_map");
 
 	private final Screen parent;
 	private final int backupId;
@@ -34,7 +46,10 @@ public final class ChunkSelectorScreen extends Screen {
 	private Integer selX1, selZ1, selX2, selZ2;
 	private boolean dragging;
 	private EditBox x1Box, z1Box, x2Box, z2Box;
-	private final java.util.Map<Long, int[]> colorCache = new java.util.HashMap<>();
+	private DynamicTexture map;
+	private int originX, originZ, span; // map texture covers chunks originX.. originX+span-1 (same for Z)
+	private final LongSet painted = new LongOpenHashSet();
+	private int repaintTicks;
 
 	public ChunkSelectorScreen(Screen parent, int backupId) {
 		super(Component.literal("Select chunks to restore from #" + backupId));
@@ -191,34 +206,99 @@ public final class ChunkSelectorScreen extends Screen {
 				minecraft.setScreen(this);
 			}
 		}, Component.literal("Restore " + count + " chunk(s) from backup #" + backupId + "?"),
-			Component.literal("Chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " in " + dim + ". Terrain, entities and POI are restored. "
+			Component.literal("Chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " (" + blockRange(x1, z1, x2, z2) + ") in " + dim + ". Terrain, entities and POI are restored. "
 				+ "The server restores them live if nobody is nearby, otherwise it queues the restore for the next restart.")));
 	}
 
-	/** 4x4 map colours for a loaded chunk, or null. Cached per screen. */
-	private int[] colors(ClientLevel level, int cx, int cz) {
-		long key = ChunkPos.asLong(cx, cz);
-		int[] cached = colorCache.get(key);
-		if (cached != null || colorCache.containsKey(key)) return cached;
-		LevelChunk chunk = level.getChunkSource().getChunk(cx, cz, ChunkStatus.FULL, false);
-		int[] out = null;
-		if (chunk != null) {
-			out = new int[SAMPLES * SAMPLES];
-			BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-			for (int sx = 0; sx < SAMPLES; sx++) {
-				for (int sz = 0; sz < SAMPLES; sz++) {
-					int lx = sx * 4 + 2, lz = sz * 4 + 2;
-					int y = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz) - 1;
-					pos.set(cx * 16 + lx, y, cz * 16 + lz);
-					BlockState state = chunk.getBlockState(pos);
-					MapColor mc = state.getMapColor(level, pos);
-					int rgb = mc == MapColor.NONE ? 0x202020 : mc.col;
-					out[sx + sz * SAMPLES] = 0xFF000000 | rgb;
-				}
+	static String blockRange(int x1, int z1, int x2, int z2) {
+		return "blocks x " + x1 * 16 + ".." + (x2 * 16 + 15) + ", z " + z1 * 16 + ".." + (z2 * 16 + 15);
+	}
+
+	/** Creates the map texture for the client's loaded area around the player, once per screen visit. */
+	private void ensureMap() {
+		if (map != null || minecraft.player == null || minecraft.level == null) return;
+		// Same window the client keeps chunks for (ClientChunkCache storage range), capped for the texture size.
+		int radius = Math.min(MAX_RADIUS, Math.max(2, minecraft.options.getEffectiveRenderDistance()) + 3);
+		ChunkPos cp = minecraft.player.chunkPosition();
+		originX = cp.x - radius;
+		originZ = cp.z - radius;
+		span = 2 * radius + 1;
+		map = new DynamicTexture(() -> "cytrabackups chunk selector map", span * SAMPLES, span * SAMPLES, true);
+		minecraft.getTextureManager().register(MAP_TEXTURE, map);
+		painted.clear();
+		paint(PAINT_BUDGET);
+	}
+
+	/** Paints up to {@code budget} loaded, not yet painted chunks into the map texture and uploads it if anything changed. */
+	private void paint(int budget) {
+		ClientLevel level = minecraft.level;
+		NativeImage img = map == null ? null : map.getPixels();
+		if (level == null || img == null) return;
+		boolean changed = false;
+		for (int dz = 0; dz < span && budget > 0; dz++) {
+			for (int dx = 0; dx < span && budget > 0; dx++) {
+				int cx = originX + dx, cz = originZ + dz;
+				long key = ChunkPos.asLong(cx, cz);
+				if (painted.contains(key)) continue;
+				LevelChunk chunk = level.getChunkSource().getChunk(cx, cz, ChunkStatus.FULL, false);
+				if (chunk == null) continue;
+				paintChunk(level, chunk, img, dx * SAMPLES, dz * SAMPLES);
+				painted.add(key);
+				changed = true;
+				budget--;
 			}
 		}
-		colorCache.put(key, out);
-		return out;
+		if (changed) map.upload();
+	}
+
+	/** 4x4 map-style samples (one per 4x4 blocks) with vanilla-map height shading against the sample to the north. */
+	private static void paintChunk(ClientLevel level, LevelChunk chunk, NativeImage img, int tx, int tz) {
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+		int baseX = chunk.getPos().getMinBlockX(), baseZ = chunk.getPos().getMinBlockZ();
+		for (int sz = 0; sz < SAMPLES; sz++) {
+			for (int sx = 0; sx < SAMPLES; sx++) {
+				int bx = baseX + sx * 4 + 2, bz = baseZ + sz * 4 + 2;
+				int top = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, bx, bz);
+				MapColor mc = MapColor.NONE;
+				int y = top;
+				// Like vanilla maps, look through blocks without a map colour (glass, barriers) for up to 16 blocks.
+				for (int i = 0; i < 16 && y >= level.getMinY(); i++, y--) {
+					pos.set(bx, y, bz);
+					BlockState state = chunk.getBlockState(pos);
+					mc = state.getMapColor(level, pos);
+					if (mc != MapColor.NONE) break;
+				}
+				int argb;
+				if (mc == MapColor.NONE) {
+					argb = 0xFF202020;
+				} else {
+					int north = level.getHeight(Heightmap.Types.WORLD_SURFACE, bx, bz - 4) - 1;
+					MapColor.Brightness b = north < level.getMinY() || mc == MapColor.WATER ? MapColor.Brightness.NORMAL
+						: top > north ? MapColor.Brightness.HIGH : top < north ? MapColor.Brightness.LOW : MapColor.Brightness.NORMAL;
+					argb = mc.calculateARGBColor(b) | 0xFF000000;
+				}
+				img.setPixel(tx + sx, tz + sz, argb);
+			}
+		}
+	}
+
+	@Override
+	public void tick() {
+		ensureMap();
+		if (++repaintTicks >= REPAINT_INTERVAL_TICKS) {
+			// Pick up blocks changed while the screen is open; repainting is spread over the next ticks.
+			repaintTicks = 0;
+			painted.clear();
+		}
+		paint(PAINT_BUDGET);
+	}
+
+	@Override
+	public void removed() {
+		if (map != null) {
+			minecraft.getTextureManager().release(MAP_TEXTURE);
+			map = null;
+		}
 	}
 
 	@Override
@@ -227,33 +307,20 @@ public final class ChunkSelectorScreen extends Screen {
 		g.drawString(font, title, 10, 8, 0xFFFFAA00);
 		ClientLevel level = minecraft.level;
 		if (level == null) return;
+		ensureMap();
 		int cols = cols(), rows = rows();
-		int left = gridLeft(), top = gridTop();
-		g.fill(left, top, left + cols * cell, top + rows * cell, 0xFF101010);
+		int left = gridLeft(), top = gridTop(), right = left + cols * cell, bottom = top + rows * cell;
 		int startX = centerX - cols / 2, startZ = centerZ - rows / 2;
-		int sub = Math.max(1, cell / SAMPLES);
-		for (int c = 0; c < cols; c++) {
-			for (int r = 0; r < rows; r++) {
-				int cx = startX + c, cz = startZ + r;
-				int px = left + c * cell, py = top + r * cell;
-				int[] col = colors(level, cx, cz);
-				if (col == null) {
-					g.fill(px, py, px + cell, py + cell, ((cx + cz) & 1) == 0 ? 0xFF1C1C1C : 0xFF242424);
-				} else if (cell >= SAMPLES * 2) {
-					for (int sx = 0; sx < SAMPLES; sx++) {
-						for (int sz = 0; sz < SAMPLES; sz++) {
-							g.fill(px + sx * sub, py + sz * sub, px + (sx == SAMPLES - 1 ? cell : (sx + 1) * sub), py + (sz == SAMPLES - 1 ? cell : (sz + 1) * sub), col[sx + sz * SAMPLES]);
-						}
-					}
-				} else {
-					g.fill(px, py, px + cell, py + cell, col[5]);
-				}
-				if (cx % 32 == 0 || cz % 32 == 0) {
-					if (Math.floorMod(cx, 32) == 0) g.fill(px, py, px + 1, py + cell, 0x60FFFFFF);
-					if (Math.floorMod(cz, 32) == 0) g.fill(px, py, px + cell, py + 1, 0x60FFFFFF);
-				}
-			}
+		// A handful of draw calls per frame: background, the map texture, region lines, selection and markers.
+		g.fill(left, top, right, bottom, 0xFF161616);
+		if (map != null) {
+			int mx = left + (originX - startX) * cell, my = top + (originZ - startZ) * cell, size = span * cell, tex = span * SAMPLES;
+			g.enableScissor(left, top, right, bottom);
+			g.blit(RenderPipelines.GUI_TEXTURED, MAP_TEXTURE, mx, my, 0, 0, size, size, tex, tex, tex, tex);
+			g.disableScissor();
 		}
+		for (int c = Math.floorMod(-startX, 32); c < cols; c += 32) g.fill(left + c * cell, top, left + c * cell + 1, bottom, 0x60FFFFFF);
+		for (int r = Math.floorMod(-startZ, 32); r < rows; r += 32) g.fill(left, top + r * cell, right, top + r * cell + 1, 0x60FFFFFF);
 		if (selX1 != null) {
 			int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
 			int sx1 = Math.max(left, left + (x1 - startX) * cell), sz1 = Math.max(top, top + (z1 - startZ) * cell);
@@ -262,7 +329,8 @@ public final class ChunkSelectorScreen extends Screen {
 				g.fill(sx1, sz1, sx2, sz2, 0x60FF3030);
 				g.renderOutline(sx1, sz1, sx2 - sx1, sz2 - sz1, 0xFFFF5050);
 			}
-			String info = "Selected: chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " (" + ((long) (x2 - x1 + 1) * (z2 - z1 + 1)) + " chunks)";
+			String info = "Selected: chunks " + x1 + "," + z1 + " to " + x2 + "," + z2 + " (" + ((long) (x2 - x1 + 1) * (z2 - z1 + 1)) + " chunks; "
+				+ blockRange(x1, z1, x2, z2) + ")";
 			g.drawString(font, info, 10, height - 40, 0xFFFFFFFF);
 		} else {
 			g.drawString(font, "Drag to select chunks. Scroll = zoom, arrow keys = pan. Region borders are highlighted.", 10, height - 40, 0xFFA0A0A0);
@@ -273,7 +341,8 @@ public final class ChunkSelectorScreen extends Screen {
 			if (px >= left && py >= top && px < left + cols * cell && py < top + rows * cell) g.fill(px - 2, py - 2, px + 2, py + 2, 0xFFFFFFFF);
 		}
 		if (inGrid(mouseX, mouseY)) {
-			String hover = "Chunk " + chunkAtX(mouseX) + ", " + chunkAtZ(mouseY) + "  (region " + Math.floorDiv(chunkAtX(mouseX), 32) + ", " + Math.floorDiv(chunkAtZ(mouseY), 32) + ")";
+			int hx = chunkAtX(mouseX), hz = chunkAtZ(mouseY);
+			String hover = "Chunk " + hx + ", " + hz + "  (blocks " + hx * 16 + ", " + hz * 16 + "; region " + Math.floorDiv(hx, 32) + ", " + Math.floorDiv(hz, 32) + ")";
 			g.drawString(font, hover, width - 10 - font.width(hover), 8, 0xFFFFFFFF);
 		}
 	}

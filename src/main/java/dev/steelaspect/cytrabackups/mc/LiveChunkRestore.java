@@ -27,7 +27,10 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.util.Mth;
+import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -84,14 +87,26 @@ public final class LiveChunkRestore {
 		return best;
 	}
 
+	/**
+	 * Chebyshev distance in chunks from a player within which Minecraft keeps chunk holders for the area: the player
+	 * ticket covers the (clamped) view distance and its level then spreads one level per chunk up to
+	 * {@link ChunkLevel#MAX_LEVEL}. A holder may cache the chunk, so those chunks never count as unloaded.
+	 */
+	public static int holderRange(int viewDistance) {
+		return Mth.clamp(viewDistance, 2, 32) + ChunkLevel.MAX_LEVEL - ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING);
+	}
+
 	/** Server thread. Fast rejection before waiting for unloads. */
 	public static Safety quickCheck(ServerLevel level, ChunkSelection sel, int viewDistance) {
 		if (level.noSave) return Safety.no("autosave is disabled in this dimension (/save-off), so Minecraft will not unload the chunks");
+		int range = holderRange(viewDistance);
 		for (ServerPlayer p : level.players()) {
 			ChunkPos cp = p.chunkPosition();
 			int d = distanceToSelection(sel, cp.x, cp.z);
-			if (d <= viewDistance + 2) {
-				return Safety.no("player " + p.getGameProfile().name() + " is " + d + " chunks from the area (view distance " + viewDistance + ") and keeps it loaded");
+			if (d <= range) {
+				return Safety.no("player " + p.getGameProfile().name() + " is " + d + " chunks from the area; Minecraft keeps chunks within " + range
+					+ " chunks of a player in memory (view distance " + viewDistance + " plus loading margin), so players must be at least "
+					+ (range + 1) + " chunks (" + (range + 1) * 16 + " blocks) away for a live restore");
 			}
 		}
 		LongSet forced = level.getForceLoadedChunks();

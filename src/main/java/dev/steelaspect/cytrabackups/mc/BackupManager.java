@@ -543,7 +543,7 @@ public final class BackupManager {
 		await(await(server.submit(() -> LiveChunkRestore.flush(level)), job), job);
 		long chunks = writes.stream().filter(w -> w.kind() == LiveChunkRestore.Kind.REGION).count();
 		String text = "Restored " + chunks + " chunk(s) of " + sel.describe() + " in " + dimId + " from backup #" + id + " LIVE ("
-			+ writes.size() + " region/entity/POI records written). Why live: no player within view distance, nothing force-loaded, "
+			+ writes.size() + " region/entity/POI records written). Why live: no player close enough to keep the area in memory, nothing force-loaded, "
 			+ "and every selected chunk was fully unloaded, so the data was written through Minecraft's own region IO and cached "
 			+ "entity/POI data was refreshed. Pre-restore backup of the area: #" + preMeta.id + ".";
 		fb.success(text);
@@ -568,7 +568,10 @@ public final class BackupManager {
 		op.requestedAt = System.currentTimeMillis();
 		op.reason = reason;
 		PendingOperationRunner.writePending(services.storage, op);
-		String when = config.restore.applyMode.equals("startup") ? "on the next server start, before the world loads" : "when the server next stops";
+		boolean startup = config.restore.applyMode.equals("startup");
+		String when = server.isDedicatedServer()
+			? (startup ? "on the next server start, before the world loads" : "when the server next stops")
+			: (startup ? "the next time this world is opened, before it loads" : "when you leave this world");
 		MutableComponent msg = Msg.warn("Live restore not safe: " + reason + ". The chunk restore was QUEUED and will be applied " + when
 			+ " (with a pre-restore backup of the area). ");
 		msg.append(Msg.run("Restart now", "/backup pending apply", "Countdown, kick everyone and stop the server to apply it", ChatFormatting.RED));

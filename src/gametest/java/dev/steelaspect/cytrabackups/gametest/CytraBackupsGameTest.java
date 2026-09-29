@@ -9,6 +9,7 @@ import dev.steelaspect.cytrabackups.core.restore.PendingOperationRunner;
 import dev.steelaspect.cytrabackups.core.restore.RestoreResult;
 import dev.steelaspect.cytrabackups.mc.BackupManager;
 import dev.steelaspect.cytrabackups.mc.Feedback;
+import dev.steelaspect.cytrabackups.mc.LiveChunkRestore;
 import dev.steelaspect.cytrabackups.mc.StartupRestore;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -25,6 +26,8 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
@@ -115,6 +118,33 @@ public class CytraBackupsGameTest {
 				forceLoad(level, false);
 				msgs.lines.forEach(l -> org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("[job message] {}", l));
 				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("On-disk full restore / restore / rollback: {}", diskResult.get());
+			})
+			.thenSucceed();
+	}
+
+	/**
+	 * The live-restore distance check must match what Minecraft really keeps in memory: a ticket at the player-ticket
+	 * level (radius 2 = level 31) must leave chunk holders, as counted by the restore's own unload check, exactly
+	 * {@code holderRange(vd) - vd} chunks beyond the ticketed area and none further out.
+	 */
+	@GameTest(maxTicks = 2_000)
+	public void holderRangeMatchesTickets(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		int spread = LiveChunkRestore.holderRange(10) - 10;
+		ChunkPos c = new ChunkPos(-2000, 2000); // untouched by other tests
+		helper.assertTrue(spread > 2, "holder spread should exceed the old view distance + 2 guess, got " + spread);
+		helper.startSequence()
+			.thenExecute(() -> level.getChunkSource().addTicketWithRadius(TicketType.FORCED, c, 2))
+			.thenWaitUntil(() -> helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread, c.z, c.x + spread, c.z)) == 1,
+				"a holder should exist " + spread + " chunks from the ticket"))
+			.thenIdle(20)
+			.thenExecute(() -> {
+				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread, c.z - spread, c.x + spread, c.z + spread)) == 2 * spread + 1,
+					"every chunk " + spread + " away should have a holder");
+				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread + 1, c.z - spread - 1, c.x + spread + 1, c.z + spread + 1)) == 0,
+					"no chunk " + (spread + 1) + " away should have a holder");
+				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("Chunk holders reach {} chunks beyond a player's view distance", spread);
+				level.getChunkSource().removeTicketWithRadius(TicketType.FORCED, c, 2);
 			})
 			.thenSucceed();
 	}

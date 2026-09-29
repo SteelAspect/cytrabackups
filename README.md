@@ -101,7 +101,7 @@ The console gets the confirmation token printed (`type: backup confirm <token>`)
 With the mod installed on the client, open the manager with `/backupgui` or a key binding (Controls → CytraBackups; unbound by default).
 
 - The list shows date, trigger, size, comment and pin state.
-- Buttons: create (with a comment), restore, pin/unpin, delete, and **Chunks…**. Chunks… opens a map-style selector: loaded chunks are drawn from their top-block map colors, and you drag to select. Coordinates can also be typed.
+- Buttons: create (with a comment), restore, pin/unpin, delete, and **Chunks…**. Chunks… opens a map-style selector: loaded chunks are painted once into a small texture from their top-block map colors (with map-style height shading) and drawn with a single blit, so it stays smooth at any zoom. Drag to select; the selection and hover text show chunk and block coordinates. Coordinates can also be typed.
 - Every GUI action goes through the same server-side permission checks as the commands.
 - On servers without CytraBackups, the GUI says so and sends nothing.
 
@@ -139,7 +139,7 @@ In singleplayer, commands need cheats enabled (or "Allow Commands" when opening 
 **Partial restore (chunks, region, radius)**
 
 1. A restore is attempted **live** when all of these hold:
-   - no player is within view distance + 2 chunks of the area,
+   - no player is close enough to keep the area in memory. Minecraft keeps chunk holders for view distance + 13 chunks around each player (the player ticket spreads outwards until `ChunkLevel.MAX_LEVEL`; the `holderRangeMatchesTickets` gametest checks this against the real ticket system), so in singleplayer with render distance 12 you need to be at least 26 chunks (416 blocks) away. The exact distance is in the message when a restore is queued,
    - nothing in or next to it is force-loaded,
    - autosave is on,
    - every selected chunk fully unloads within `liveUnloadTimeoutSeconds`.
@@ -147,7 +147,7 @@ In singleplayer, commands need cheats enabled (or "Allow Commands" when opening 
    Unloaded means no chunk holder, no pending unload and no loaded entity sections.
 2. Pending chunk IO is flushed, then a backup of just the affected region/entity/POI files is taken.
 3. In one server tick, safety is re-checked and the backup's chunk NBT is written through Minecraft's own IO workers. `ChunkMap`, `EntityStorage` and `PoiManager` caches for those chunks are evicted, so the next load reads the restored data. Chunks that did not exist in the backup are deleted, so they regenerate.
-4. If it is not safe (for example a player is nearby, the chunks are force-loaded, or they stayed loaded), the restore is **queued for the next start** and the reason is reported.
+4. If it is not safe (for example a player is nearby, the chunks are force-loaded, or they stayed loaded), the restore is **queued for the next start** and the reason is reported. In singleplayer "next start" means the next time the world is opened.
 
    `/backup pending apply` restarts right away. At startup the region files are merged: only the selected chunks are replaced, and everything else in those region files is kept.
 
@@ -385,7 +385,8 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   2. modify the world and back up again
   3. full restore and rollback through the startup-restore code path (checking the block in the restored region NBT)
   4. modify again, unload the chunk, **live chunk restore**, then reload it and assert the original block is back
-  5. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
+  5. the live-restore distance check matches Minecraft's real ticket system (chunk holders reach exactly view distance + 13 chunks)
+  6. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
 - **Client GameTest** (`runClientGameTest`, not yet verified): a real client with a singleplayer world, driven with mouse and keyboard. It is written to check that:
   - `/backupgui` opens the list;
   - "Create backup" and "Pin" work;

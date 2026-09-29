@@ -61,6 +61,46 @@ public final class LongHashSet {
 		return size;
 	}
 
+	/** Removes a value using backward-shift deletion (keeps linear probing chains intact). */
+	public boolean remove(long v) {
+		if (v == EMPTY) {
+			boolean had = containsZero;
+			if (had) size--;
+			containsZero = false;
+			return had;
+		}
+		int mask = table.length - 1;
+		int i = mix(v) & mask;
+		while (true) {
+			long cur = table[i];
+			if (cur == EMPTY) return false;
+			if (cur == v) break;
+			i = (i + 1) & mask;
+		}
+		int hole = i;
+		int j = hole;
+		while (true) {
+			j = (j + 1) & mask;
+			long cur = table[j];
+			if (cur == EMPTY) break;
+			int home = mix(cur) & mask;
+			// move cur into the hole if its home slot is not in (hole, j]
+			boolean between = hole <= j ? (home > hole && home <= j) : (home > hole || home <= j);
+			if (!between) {
+				table[hole] = cur;
+				hole = j;
+			}
+		}
+		table[hole] = EMPTY;
+		size--;
+		return true;
+	}
+
+	public void forEach(java.util.function.LongConsumer consumer) {
+		if (containsZero) consumer.accept(EMPTY);
+		for (long v : table) if (v != EMPTY) consumer.accept(v);
+	}
+
 	private void rehash(int newCap) {
 		long[] old = table;
 		table = new long[newCap];

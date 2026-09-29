@@ -71,7 +71,7 @@ The jar bundles its libraries through Fabric jar-in-jar: aircompressor 2.0.3 (pu
 
 Output: **`build/libs/cytrabackups-1.2.0.jar`**, the mod jar with bundled libraries. `build/libs/cytrabackups-1.2.0-sources.jar` holds the sources.
 
-Releases are built by GitHub Actions (`.github/workflows/release.yml`): pushing a tag such as `v1.2.0` builds the jar, runs the unit tests and server GameTests, and publishes a release with notes from `CHANGELOG.md`.
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): pushing a tag such as `v1.2.0`, or running the workflow by hand (Actions → Release → Run workflow), builds the jar, runs the unit tests and server GameTests, and publishes release `v<mod_version>` with notes from `CHANGELOG.md`.
 
 - Requires JDK 21. The build uses Gradle 9.7.1 (wrapper) and Fabric Loom 1.17.21 with official Mojang mappings.
 - Loom 1.18 needs Java 25 to run Gradle, so 1.17.21 is used to keep the whole toolchain on Java 21.

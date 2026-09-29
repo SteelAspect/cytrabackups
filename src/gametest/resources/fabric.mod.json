@@ -9,6 +9,9 @@
 		"fabric-gametest": [
 			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest",
 			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest"
+		],
+		"fabric-client-gametest": [
+			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest"
 		]
 	},
 	"depends": {

@@ -34,6 +34,9 @@ Author: steelaspect · Mod ID: `cytrabackups` · Package: `dev.steelaspect.cytra
   - `verify`, `status`, `cancel`, `reload`
 - **Discord webhook** notifications for success, failure, restore and low disk.
 - **Off-site copies** to S3-compatible storage (AWS, R2, B2, MinIO…), SFTP or WebDAV. All pure Java; only new blobs are uploaded.
+  - Existing backups are queued automatically when off-site is first enabled or the destination changes (type, endpoint, bucket, prefix or folder).
+  - The S3 bucket must already exist. A missing WebDAV base folder is created if its parent exists.
+  - Remote copies follow local deletes and pruning (`mirrorDeletes`).
 - **Progress** shown in a boss bar or the action bar.
 - **Permissions** via [fabric-permissions-api](https://github.com/lucko/fabric-permissions-api) (LuckPerms and others), with op-level fallback. Restore needs op 4 by default.
 - **Singleplayer** works too, with one repository per world.
@@ -57,7 +60,9 @@ Output: **`build/libs/cytrabackups-1.0.0.jar`**, the mod jar with bundled librar
 - Requires JDK 21. The build uses Gradle 9.7.1 (wrapper) and Fabric Loom 1.17.21 with official Mojang mappings.
 - Loom 1.18 needs Java 25 to run Gradle, so 1.17.21 is used to keep the whole toolchain on Java 21.
 - Unit tests: `./gradlew test`
-- Headless GameTests: `./gradlew runGameTest`. This starts a dedicated test server, runs the tests and exits non-zero on failure.
+- Off-site integration tests: `./gradlew integrationTest`. These run against embedded S3, SFTP and WebDAV servers and are kept out of `build` because of their large test-only dependencies.
+- Headless server GameTests: `./gradlew runGameTest`. This starts a dedicated test server, runs the tests and exits non-zero on failure.
+- Client GameTest (real client, GUI and singleplayer): `xvfb-run -a ./gradlew runClientGameTest`, or without `xvfb-run` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`.
 
 ## Commands
 
@@ -81,7 +86,7 @@ All commands are under `/backup` (`/backup help` lists them). `<id>` suggests ex
 | `pending` / `pending cancel` / `pending apply` | `restore` | Show, drop, or apply now (countdown + stop) a queued restore |
 | `verify <id>` | `verify` | Re-hash every blob of a backup without restoring |
 | `export <id>` | `export` | Build `backups/cytrabackups/exports/<world>-backup-<id>-<time>.zip` |
-| `import <path>` | `admin` | Import a world folder or `.zip` (path relative to the server folder) |
+| `import <path> [comment]` | `admin` | Import a world folder or `.zip` (path relative to the server folder; quote paths containing spaces) |
 | `prune [dryrun]` | `prune` | Apply retention rules; `dryrun` lists what would be deleted and why |
 | `gc` | `prune` | Delete blobs no backup references any more |
 | `status` | `list` | Running job (phase, %, ETA), next automatic backup, free space, queue, off-site |
@@ -362,19 +367,39 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
 
 ## Tests
 
-- **Unit tests** (`./gradlew test`, 51 tests) cover the pure-Java core:
+- **Unit tests** (`./gradlew test`, 58 tests) cover the pure-Java core:
   - dedup (unchanged world adds no blobs; one changed chunk stores exactly one blob; duplicate files; large-file pieces; skip-if-unchanged)
   - manifest round-trip
   - every pruning strategy (keep-last, hourly/daily/weekly/monthly, ISO weeks, max age, max size with shared blobs, pins, pre-restore window)
   - compression round-trip at several zstd levels, deflate, incompressible and already-compressed data
   - hash verification and corruption detection
   - full restore, chunk restore, recycle-bin rollback, journal crash recovery, aborting a restore on a corrupt blob
-  - garbage collection, diff, config parsing and validation, off-site sync, S3 SigV4 key derivation
-- **GameTest** (`./gradlew runGameTest`), on a real headless 1.21.11 server:
+  - garbage collection, diff, config parsing and validation, off-site sync and destination switching, S3 SigV4 key derivation
+  - the Discord client against a local webhook endpoint (payload format, 429 `Retry-After` retries, HTTP errors, Discord's length limits)
+- **Off-site integration tests** (`./gradlew integrationTest`, 11 tests) use real servers embedded in the test:
+  - **S3:** [S3Proxy](https://github.com/gaul/s3proxy), which verifies every AWS SigV4 signature. Covers keys with special characters, a wrong secret (403), and a full mirror including pruned deletes.
+  - **SFTP:** Apache MINA SSHD. Covers password and private-key login, trust-on-first-use pinning, refusing a changed host key, strict and disabled checking, and a full sync.
+  - **WebDAV:** Tomcat's WebdavServlet with basic auth. Covers folder creation (including the base folder), bad credentials (401), and a full sync.
+- **Server GameTests** (`./gradlew runGameTest`), on a real headless 1.21.11 server:
   1. back up
   2. modify the world and back up again
   3. full restore and rollback through the startup-restore code path (checking the block in the restored region NBT)
   4. modify again, unload the chunk, **live chunk restore**, then reload it and assert the original block is back
+  5. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
+- **Client GameTest** (`runClientGameTest`): a real client with a singleplayer world, driven with mouse and keyboard.
+  - `/backupgui` opens the list.
+  - "Create backup" and "Pin" work.
+  - A drag-selected chunk restore in the map selector is queued, because the player is standing in the area.
+  - "Restore..." starts the countdown.
+  - A queued full restore is applied by the world-open mixin when the save is reopened.
+- **Vanilla client** (no mod installed), checked with a [mineflayer](https://github.com/PrismarineJS/mineflayer) bot on protocol 1.21.11:
+  - Non-ops cannot see `/backup`.
+  - List rows carry `run_command`/`suggest_command` click events, and confirmations work by running the clicked command.
+  - The boss bar shows during backups.
+  - A chunk restore next to the player is queued, with the reason stated.
+  - Leaving triggers the last-player-left backup.
+  - The restore countdown appears in chat and the action bar, followed by a kick with the configured message.
+  - An op is told the restore result on the next join.
 
 ## Design notes
 

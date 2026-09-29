@@ -41,7 +41,7 @@ fabricApi {
 		createSourceSet = true
 		modId = "cytrabackups-gametest"
 		enableGameTests = true
-		enableClientGameTests = false
+		enableClientGameTests = true
 		eula = true
 	}
 }

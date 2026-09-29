@@ -169,6 +169,12 @@ public final class BackupManager {
 		return currentJob.get();
 	}
 
+	/** Server thread: label of the running restore countdown, or null. */
+	public String countdownLabel() {
+		Countdown c = countdown;
+		return c == null ? null : c.label();
+	}
+
 	public ZoneId zone() {
 		return config.timeZone.equals("system") ? ZoneId.systemDefault() : ZoneId.of(config.timeZone);
 	}

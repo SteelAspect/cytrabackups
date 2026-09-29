@@ -44,7 +44,7 @@ public final class CytraBackupsClient implements ClientModInitializer {
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientState.clear());
 	}
 
-	static void open(Minecraft mc) {
+	public static void open(Minecraft mc) {
 		if (mc.player == null) return;
 		if (!ClientState.serverSupported()) {
 			mc.player.displayClientMessage(Component.literal("[CytraBackups] This server does not run CytraBackups' GUI channel. Use the /backup commands instead."), false);

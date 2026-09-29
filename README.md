@@ -367,7 +367,7 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
 
 ## Tests
 
-- **Unit tests** (`./gradlew test`, 58 tests) cover the pure-Java core:
+- **Unit tests** (`./gradlew test`, 57 tests) cover the pure-Java core:
   - dedup (unchanged world adds no blobs; one changed chunk stores exactly one blob; duplicate files; large-file pieces; skip-if-unchanged)
   - manifest round-trip
   - every pruning strategy (keep-last, hourly/daily/weekly/monthly, ISO weeks, max age, max size with shared blobs, pins, pre-restore window)
@@ -376,7 +376,7 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   - full restore, chunk restore, recycle-bin rollback, journal crash recovery, aborting a restore on a corrupt blob
   - garbage collection, diff, config parsing and validation, off-site sync and destination switching, S3 SigV4 key derivation
   - the Discord client against a local webhook endpoint (payload format, 429 `Retry-After` retries, HTTP errors, Discord's length limits)
-- **Off-site integration tests** (`./gradlew integrationTest`, 11 tests) use real servers embedded in the test:
+- **Off-site integration tests** (`./gradlew integrationTest`, 12 tests) use real servers embedded in the test:
   - **S3:** [S3Proxy](https://github.com/gaul/s3proxy), which verifies every AWS SigV4 signature. Covers keys with special characters, a wrong secret (403), and a full mirror including pruned deletes.
   - **SFTP:** Apache MINA SSHD. Covers password and private-key login, trust-on-first-use pinning, refusing a changed host key, strict and disabled checking, and a full sync.
   - **WebDAV:** Tomcat's WebdavServlet with basic auth. Covers folder creation (including the base folder), bad credentials (401), and a full sync.

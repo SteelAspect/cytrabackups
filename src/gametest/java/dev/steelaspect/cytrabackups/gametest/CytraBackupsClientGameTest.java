@@ -1,6 +1,7 @@
 package dev.steelaspect.cytrabackups.gametest;
 
-import dev.steelaspect.cytrabackups.client.BackupListScreen;
+import dev.steelaspect.cytrabackups.client.BackupScreen;
+import dev.steelaspect.cytrabackups.client.ConfirmDialog;
 import dev.steelaspect.cytrabackups.client.ChunkSelectorScreen;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperation;
@@ -15,7 +16,6 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
 import net.minecraft.client.gui.screens.ChatScreen;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -67,6 +67,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		if (System.getenv("CYTRA_GUI_PREVIEW_ONLY") != null) return; // only the GUI preview screenshots
 		BlockPos marker;
 		int beforeId;
 		TestWorldSave save;
@@ -94,7 +95,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			// open the GUI through the client command, exactly as a player would type it
 			ctx.setScreen(() -> new ChatScreen("/backupgui", false));
 			ctx.getInput().pressKey(GLFW.GLFW_KEY_ENTER);
-			ctx.waitForScreen(BackupListScreen.class);
+			ctx.waitForScreen(BackupScreen.class);
 			ctx.waitTicks(30);
 			ctx.takeScreenshot("cytrabackups-1-backup-list");
 
@@ -110,12 +111,12 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			LOG.info("GUI pin: OK");
 
 			clickRow(ctx, 1);
-			ctx.clickScreenButton("Chunks...");
+			ctx.clickScreenButton("Area...");
 			ctx.waitForScreen(ChunkSelectorScreen.class);
 			ctx.waitTicks(10);
 			int w = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledWidth());
 			int h = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledHeight());
-			int cx = 10 + ((w - 20) / 8 / 2) * 8 + 4, cy = 24 + ((h - 64) / 8 / 2) * 8 + 4;
+			int cx = 10 + ((w - 20) / 8 / 2) * 8 + 4, cy = 24 + ((h - 118) / 8 / 2) * 8 + 4;
 			cursor(ctx, cx - 8, cy - 8);
 			ctx.getInput().holdMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTick();
@@ -125,9 +126,9 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(2);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
 			ctx.clickScreenButton("Restore selection...");
-			ctx.waitForScreen(ConfirmScreen.class);
+			ctx.waitForScreen(ConfirmDialog.class); // the server's confirmation, shown as a dialog
 			ctx.takeScreenshot("cytrabackups-4-confirm-chunks");
-			ctx.clickScreenButton("gui.yes");
+			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "chunk restore queued", () -> onServer(server, s -> {
 				try {
 					PendingOperation op = PendingOperationRunner.readPending(BackupManager.get().services().storage);
@@ -140,11 +141,13 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.takeScreenshot("cytrabackups-5-chunk-restore-queued");
 			LOG.info("GUI chunk selector restore: queued (player is standing in the area)");
 			server.runCommand("backup pending cancel");
+			ctx.clickScreenButton("Back"); // the dialog returned to the chunk selector
+			ctx.waitForScreen(BackupScreen.class);
 
 			clickRow(ctx, 1);
 			ctx.clickScreenButton("Restore...");
-			ctx.waitForScreen(ConfirmScreen.class);
-			ctx.clickScreenButton("gui.yes");
+			ctx.waitForScreen(ConfirmDialog.class);
+			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "restore countdown", () -> onServer(server, s -> BackupManager.get().countdownLabel() != null));
 			ctx.waitTicks(20);
 			ctx.takeScreenshot("cytrabackups-6-restore-countdown");

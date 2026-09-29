@@ -9,6 +9,7 @@ import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.BackupService;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
+import dev.steelaspect.cytrabackups.net.CytraNetworking;
 import dev.steelaspect.cytrabackups.core.backup.Glob;
 import dev.steelaspect.cytrabackups.core.backup.RepositoryState;
 import dev.steelaspect.cytrabackups.core.backup.Trigger;
@@ -351,6 +352,7 @@ public final class BackupManager {
 			.append(Msg.run("Cancel", "/backup deny " + token, "Click to cancel", ChatFormatting.GRAY));
 		if (!src.isPlayer()) msg.append(Msg.text(" (type: backup confirm " + token + ")", ChatFormatting.GRAY));
 		src.sendSuccess(() -> msg, false);
+		CytraNetworking.sendPrompt(src, token, description + "?", details, timeout); // dialog when started from the GUI
 	}
 
 	public void confirm(String token, CommandSourceStack src, boolean accept) {
@@ -460,8 +462,12 @@ public final class BackupManager {
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
 		prompt(src, "Restore " + n + " chunk(s) (" + sel.describe() + ") in " + level.dimension().identifier() + " from backup " + describe(meta.get()),
-			"Terrain, entities and POI are restored; the area is backed up first.",
+			(sel.boxes().size() == 1 ? blockRange(sel.boxes().getFirst()) + ". " : "") + "Terrain, entities and POI are restored; the area is backed up first.",
 			() -> startChunkRestore(id, level, sel, who, fb));
+	}
+
+	private static String blockRange(ChunkSelection.Box b) {
+		return "Blocks x " + b.minX() * 16 + ".." + (b.maxX() * 16 + 15) + ", z " + b.minZ() * 16 + ".." + (b.maxZ() * 16 + 15);
 	}
 
 	public void startChunkRestore(int id, ServerLevel level, ChunkSelection sel, String who, Feedback fb) {
@@ -543,7 +549,7 @@ public final class BackupManager {
 		await(await(server.submit(() -> LiveChunkRestore.flush(level)), job), job);
 		long chunks = writes.stream().filter(w -> w.kind() == LiveChunkRestore.Kind.REGION).count();
 		String text = "Restored " + chunks + " chunk(s) of " + sel.describe() + " in " + dimId + " from backup #" + id + " LIVE ("
-			+ writes.size() + " region/entity/POI records written). Why live: no player within view distance, nothing force-loaded, "
+			+ writes.size() + " region/entity/POI records written). Why live: no player close enough to keep the area in memory, nothing force-loaded, "
 			+ "and every selected chunk was fully unloaded, so the data was written through Minecraft's own region IO and cached "
 			+ "entity/POI data was refreshed. Pre-restore backup of the area: #" + preMeta.id + ".";
 		fb.success(text);
@@ -568,7 +574,10 @@ public final class BackupManager {
 		op.requestedAt = System.currentTimeMillis();
 		op.reason = reason;
 		PendingOperationRunner.writePending(services.storage, op);
-		String when = config.restore.applyMode.equals("startup") ? "on the next server start, before the world loads" : "when the server next stops";
+		boolean startup = config.restore.applyMode.equals("startup");
+		String when = server.isDedicatedServer()
+			? (startup ? "on the next server start, before the world loads" : "when the server next stops")
+			: (startup ? "the next time this world is opened, before it loads" : "when you leave this world");
 		MutableComponent msg = Msg.warn("Live restore not safe: " + reason + ". The chunk restore was QUEUED and will be applied " + when
 			+ " (with a pre-restore backup of the area). ");
 		msg.append(Msg.run("Restart now", "/backup pending apply", "Countdown, kick everyone and stop the server to apply it", ChatFormatting.RED));
@@ -703,7 +712,7 @@ public final class BackupManager {
 				BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException("No backup #" + id)).copy();
 				m.comment = comment;
 				services.repo.updateMeta(m);
-				fb.success("Updated the comment of backup #" + id + ".");
+				fb.success(comment.isBlank() ? "Cleared the comment of backup #" + id + "." : "Updated the comment of backup #" + id + ".");
 			} catch (IOException e) {
 				fb.error(e.getMessage());
 			}
@@ -870,22 +879,43 @@ public final class BackupManager {
 			fb.error("Wait for the running job to finish before reloading.");
 			return;
 		}
+		async(() -> reloadNow(fb));
+	}
+
+	/** Writes settings edited in the GUI to the config file and reloads; {@code after} then runs on the server thread. */
+	public void saveConfigAndReload(CytraConfig edited, Feedback fb, Runnable after) {
+		if (currentJob.get() != null) {
+			fb.error("A job is running. Save the settings again when it has finished.");
+			server.execute(after);
+			return;
+		}
 		async(() -> {
 			try {
-				CytraConfig cfg = ConfigIO.load(ModEnv.configFile());
-				Services old = services;
-				Services fresh = Services.open(cfg, ModEnv.storageFor(cfg, levelName));
-				OffsiteSync freshOffsite = new OffsiteSync(fresh.repo, fresh.storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
-				config = cfg;
-				services = fresh;
-				offsite = freshOffsite;
-				notifier.configure(cfg);
-				old.close();
-				fb.success("Configuration reloaded (" + fresh.repo.list().size() + " backups in " + fresh.storage + ").");
-			} catch (Exception e) {
-				fb.error("Reload failed, keeping the old configuration: " + rootMessage(e));
+				ConfigIO.save(ModEnv.configFile(), edited);
+				reloadNow(fb);
+			} catch (IOException e) {
+				fb.error("Could not write the config file: " + rootMessage(e));
+			} finally {
+				server.execute(after);
 			}
 		});
+	}
+
+	private void reloadNow(Feedback fb) {
+		try {
+			CytraConfig cfg = ConfigIO.load(ModEnv.configFile());
+			Services old = services;
+			Services fresh = Services.open(cfg, ModEnv.storageFor(cfg, levelName));
+			OffsiteSync freshOffsite = new OffsiteSync(fresh.repo, fresh.storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
+			config = cfg;
+			services = fresh;
+			offsite = freshOffsite;
+			notifier.configure(cfg);
+			old.close();
+			fb.success("Configuration reloaded (" + fresh.repo.list().size() + " backups in " + fresh.storage + ").");
+		} catch (Exception e) {
+			fb.error("Reload failed, keeping the old configuration: " + rootMessage(e));
+		}
 	}
 
 	// ------------------------------------------------------------------ off-site

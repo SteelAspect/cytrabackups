@@ -81,10 +81,15 @@ public final class BackupCommands {
 			}))));
 
 		root.then(literal("comment").requires(Perms.require(Perms.COMMENT))
-			.then(id("id").then(argument("text", greedyString()).executes(c -> {
-				manager().setComment(getInteger(c, "id"), getString(c, "text"), Feedback.of(c.getSource()));
-				return 1;
-			}))));
+			.then(id("id")
+				.executes(c -> {
+					manager().setComment(getInteger(c, "id"), "", Feedback.of(c.getSource())); // no text: clear it
+					return 1;
+				})
+				.then(argument("text", greedyString()).executes(c -> {
+					manager().setComment(getInteger(c, "id"), getString(c, "text"), Feedback.of(c.getSource()));
+					return 1;
+				}))));
 
 		root.then(literal("pin").requires(Perms.require(Perms.PIN))
 			.then(id("id").executes(c -> {
@@ -334,7 +339,8 @@ public final class BackupCommands {
 			{"verify <id>", "Check integrity without restoring"},
 			{"export <id>", "Standalone world .zip"},
 			{"import <path> [comment]", "Import a world folder or .zip (path relative to the server folder; quote paths with spaces)"},
-			{"comment|pin|unpin|delete <id>", "Manage backups"},
+			{"comment <id> [text]", "Set a comment (no text clears it)"},
+			{"pin|unpin|delete <id>", "Manage backups"},
 			{"prune [dryrun]", "Apply retention rules"},
 			{"gc", "Free unreferenced data"},
 			{"status | cancel | reload", "Jobs and config"},

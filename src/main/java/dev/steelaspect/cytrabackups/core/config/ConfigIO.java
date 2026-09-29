@@ -40,6 +40,7 @@ public final class ConfigIO {
 			throw new IOException("Invalid config " + file.getFileName() + ": " + e.getMessage(), e);
 		}
 		if (cfg == null) cfg = new CytraConfig();
+		ConfigSchema.normalize(cfg);
 		List<String> problems = validate(cfg);
 		if (!problems.isEmpty()) throw new IOException("Invalid config: " + String.join("; ", problems));
 		save(file, cfg); // adds new options and refreshes comments
@@ -47,13 +48,17 @@ public final class ConfigIO {
 	}
 
 	public static List<String> validate(CytraConfig c) {
-		List<String> p = new ArrayList<>();
+		List<String> p = new ArrayList<>(ConfigSchema.genericProblems(c)); // choices and negative numbers
+		if (c.storagePath == null || c.storagePath.isBlank()) p.add("storagePath must not be empty");
 		String alg = c.compression.algorithm.toLowerCase(java.util.Locale.ROOT);
-		if (!List.of("zstd", "deflate", "none").contains(alg)) p.add("compression.algorithm must be zstd, deflate or none");
-		if (!List.of("startup", "shutdown").contains(c.restore.applyMode)) p.add("restore.applyMode must be \"startup\" or \"shutdown\"");
-		if (!List.of("permitted", "everyone", "nobody").contains(c.progress.showTo)) p.add("progress.showTo must be permitted, everyone or nobody");
-		if (!List.of("s3", "sftp", "webdav").contains(c.offsite.type)) p.add("offsite.type must be s3, sftp or webdav");
-		if (!List.of("tofu", "yes", "no").contains(c.offsite.sftp.hostKeyChecking)) p.add("offsite.sftp.hostKeyChecking must be tofu, yes or no");
+		if (alg.equals("zstd") && (c.compression.level < 1 || c.compression.level > 19)) p.add("compression.level must be 1-19 for zstd");
+		if (alg.equals("deflate") && (c.compression.level < 1 || c.compression.level > 9)) p.add("compression.level must be 1-9 for deflate");
+		if (c.compression.minSavingsPercent > 100) p.add("compression.minSavingsPercent must be 0-100");
+		if (c.offsite.sftp.port < 1 || c.offsite.sftp.port > 65535) p.add("offsite.sftp.port must be 1-65535");
+		if (c.restore.maxChunks < 1) p.add("restore.maxChunks must be at least 1");
+		for (Map.Entry<String, Integer> e : c.permissions.defaultLevels.entrySet()) {
+			if (e.getValue() == null || e.getValue() < 0 || e.getValue() > 4) p.add("permissions.defaultLevels." + e.getKey() + " must be 0-4");
+		}
 		for (String t : c.schedule.timesOfDay) {
 			if (!t.matches("([01]?\\d|2[0-3]):[0-5]\\d")) p.add("schedule.timesOfDay entry '" + t + "' is not HH:mm");
 		}

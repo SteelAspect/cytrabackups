@@ -22,3 +22,4 @@ accessible	field	net/minecraft/world/entity/ai/village/poi/PoiManager	loadedChun
 accessible	field	net/minecraft/server/level/ServerLevel	structureCheck	Lnet/minecraft/world/level/levelgen/structure/StructureCheck;
 accessible	field	net/minecraft/world/level/levelgen/structure/StructureCheck	loadedChunks	Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
 accessible	field	net/minecraft/world/level/levelgen/structure/StructureCheck	featureChecks	Ljava/util/Map;
+accessible	field	net/minecraft/commands/CommandSourceStack	source	Lnet/minecraft/commands/CommandSource;

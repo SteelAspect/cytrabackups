@@ -8,9 +8,11 @@
 	"entrypoints": {
 		"fabric-gametest": [
 			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest",
-			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest"
+			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest",
+			"dev.steelaspect.cytrabackups.gametest.GuiChannelGameTest"
 		],
 		"fabric-client-gametest": [
+			"dev.steelaspect.cytrabackups.gametest.GuiPreviewClientGameTest",
 			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest"
 		]
 	},

@@ -51,6 +51,7 @@ public final class CytraConfig {
 
 	public static final class CompressionSettings {
 		@Comment("zstd (pure Java, recommended), deflate, or none. Already-compressed data is always stored as-is.")
+		@Choices({"zstd", "deflate", "none"})
 		public String algorithm = "zstd";
 		@Comment("zstd: 1-19 (3 = fast default); deflate: 1-9.")
 		public int level = 3;
@@ -87,9 +88,13 @@ public final class CytraConfig {
 		@Comment({"Keep rules are combined: a backup survives if ANY rule keeps it. Set all to 0 to keep everything",
 			"(then only maxAgeDays / maxTotalSizeGiB delete). Pinned backups are never pruned."})
 		public int keepLast = 12;
+		@Comment("Keep the newest backup of each of the last N hours.")
 		public int keepHourly = 24;
+		@Comment("Keep the newest backup of each of the last N days.")
 		public int keepDaily = 7;
+		@Comment("Keep the newest backup of each of the last N weeks.")
 		public int keepWeekly = 4;
+		@Comment("Keep the newest backup of each of the last N months.")
 		public int keepMonthly = 6;
 		@Comment("Delete unpinned backups older than this many days, even if a keep rule matches. 0 = off.")
 		public double maxAgeDays = 0;
@@ -99,6 +104,7 @@ public final class CytraConfig {
 		public boolean alwaysKeepLatest = true;
 		@Comment("Keep automatic pre-restore backups for preRestoreMaxAgeDays regardless of other keep rules (0 = forever).")
 		public boolean keepPreRestore = true;
+		@Comment("Days to keep automatic pre-restore backups when keepPreRestore is on (0 = forever).")
 		public double preRestoreMaxAgeDays = 14;
 		@Comment("Delete blobs no longer referenced by any backup after pruning.")
 		public boolean garbageCollect = true;
@@ -112,6 +118,7 @@ public final class CytraConfig {
 		@Comment({"When to apply a restore that needs the world closed:",
 			"  \"startup\"  = stop the server; the restore is applied on the next start before the world loads (hosts that auto-restart).",
 			"  \"shutdown\" = apply right after the server has saved and stopped, then stay stopped (hosts that do not auto-restart)."})
+		@Choices({"startup", "shutdown"})
 		public String applyMode = "startup";
 		@Comment("Message shown to kicked players.")
 		public String kickMessage = "Restoring a world backup. The server will be back shortly.";
@@ -131,6 +138,7 @@ public final class CytraConfig {
 		@Comment("Show progress in the action bar.")
 		public boolean actionBar = false;
 		@Comment("Who sees progress: \"permitted\" (cytrabackups.progress), \"everyone\" or \"nobody\".")
+		@Choices({"permitted", "everyone", "nobody"})
 		public String showTo = "permitted";
 		@Comment("Broadcast a chat message when an automatic backup finishes.")
 		public boolean announceScheduled = false;
@@ -139,12 +147,20 @@ public final class CytraConfig {
 	public static final class DiscordSettings {
 		@Comment("Post notifications to a Discord webhook.")
 		public boolean enabled = false;
+		@Comment("Discord channel webhook URL (Channel settings > Integrations > Webhooks).")
+		@Secret
 		public String webhookUrl = "";
+		@Comment("Name the webhook posts as.")
 		public String username = "CytraBackups";
+		@Comment("Post when a backup finishes.")
 		public boolean onBackupSuccess = true;
+		@Comment("Post when a backup fails.")
 		public boolean onBackupFailure = true;
+		@Comment("Post when a restore or rollback is scheduled or applied.")
 		public boolean onRestore = true;
+		@Comment("Post when free disk space drops below lowDiskWarningMiB.")
 		public boolean onLowDisk = true;
+		@Comment("Post when pruning deletes backups.")
 		public boolean onPrune = false;
 		@Comment("Warn when free space on the storage disk drops below this many MiB.")
 		public long lowDiskWarningMiB = 4096;
@@ -156,6 +172,7 @@ public final class CytraConfig {
 		@Comment("Copy backups to off-site storage after they are created.")
 		public boolean enabled = false;
 		@Comment("\"s3\" (any S3-compatible service), \"sftp\" or \"webdav\".")
+		@Choices({"s3", "sftp", "webdav"})
 		public String type = "s3";
 		@Comment("Also delete remote copies when backups are pruned/deleted locally.")
 		public boolean mirrorDeletes = true;
@@ -166,32 +183,50 @@ public final class CytraConfig {
 		public static final class S3 {
 			@Comment("e.g. https://s3.eu-central-1.amazonaws.com, https://<account>.r2.cloudflarestorage.com, https://s3.us-west-004.backblazeb2.com")
 			public String endpoint = "";
+			@Comment("Region name used for request signing, e.g. us-east-1 (\"auto\" for Cloudflare R2).")
 			public String region = "us-east-1";
+			@Comment("Bucket name.")
 			public String bucket = "";
+			@Comment("Key prefix (folder) inside the bucket.")
 			public String prefix = "cytrabackups/";
+			@Comment("Access key ID.")
 			public String accessKey = "";
+			@Comment("Secret access key.")
+			@Secret
 			public String secretKey = "";
 			@Comment("Path-style URLs (endpoint/bucket/key). Needed for MinIO and most self-hosted services.")
 			public boolean pathStyle = true;
 		}
 
 		public static final class Sftp {
+			@Comment("SFTP server host name or IP.")
 			public String host = "";
+			@Comment("SSH port.")
 			public int port = 22;
+			@Comment("Login user name.")
 			public String username = "";
+			@Comment("Login password (not needed with a private key).")
+			@Secret
 			public String password = "";
 			@Comment("Path to a private key (relative to the server folder). Used instead of the password when set.")
 			public String privateKey = "";
+			@Comment("Passphrase of the private key, if it has one.")
+			@Secret
 			public String privateKeyPassphrase = "";
+			@Comment("Remote folder for the backups (created if missing).")
 			public String remoteDir = "cytrabackups";
 			@Comment("\"tofu\" = trust the host key on first connect and pin it (stored next to the backups), \"yes\" = known_hosts only, \"no\" = never check.")
+			@Choices({"tofu", "yes", "no"})
 			public String hostKeyChecking = "tofu";
 		}
 
 		public static final class WebDav {
 			@Comment("Base URL of the target folder, e.g. https://cloud.example.com/remote.php/dav/files/me/backups/")
 			public String url = "";
+			@Comment("WebDAV user name.")
 			public String username = "";
+			@Comment("WebDAV password or app password.")
+			@Secret
 			public String password = "";
 		}
 	}

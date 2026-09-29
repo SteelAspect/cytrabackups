@@ -1,10 +1,24 @@
-# CytraBackups (Fabric 1.21.11)
+# CytraBackups
 
-Deduplicating world backups for technical Fabric servers, for **Minecraft Java 1.21.11**.
+![Minecraft 1.21.11](https://img.shields.io/badge/Minecraft-1.21.11-3c8527)
+![Fabric](https://img.shields.io/badge/loader-Fabric-dbd0b4)
+![Java 21](https://img.shields.io/badge/Java-21-e76f00)
+![License MIT](https://img.shields.io/badge/license-MIT-blue)
+[![Latest release](https://img.shields.io/github/v/release/steelaspect/cytrabackups?label=download)](https://github.com/steelaspect/cytrabackups/releases/latest)
+
+**Deduplicating world backups for Fabric servers and singleplayer, Minecraft Java 1.21.11.** Only changed chunks are stored again, restores are safe and undoable, and everything can be done from chat commands or an in-game GUI.
 
 - **Server-side only.** Vanilla clients can use every feature through `/backup` commands and clickable chat.
 - **Built for panel hosts** (Pterodactyl and similar). Everything runs in pure Java inside the server process: no root, no shell scripts, no external binaries, no cron.
-- **Optional client GUI** in the same jar (`environment: "*"`). Players without the mod lose nothing, and the server never requires it.
+- **Optional client GUI** in the same jar. Players without the mod lose nothing, and the server never requires it.
+
+**[⬇ Download the latest release](https://github.com/steelaspect/cytrabackups/releases/latest)** · [Changelog](CHANGELOG.md)
+
+| Backups | Settings |
+|---|---|
+| ![Backups tab](docs/images/gui-backups.png) | ![Settings](docs/images/gui-settings.png) |
+| **Tools** | **Confirmation** |
+| ![Tools tab](docs/images/gui-tools.png) | ![Confirm dialog](docs/images/gui-confirm.png) |
 
 Author: steelaspect · Mod ID: `cytrabackups` · Package: `dev.steelaspect.cytrabackups` · License: MIT
 
@@ -44,7 +58,7 @@ Author: steelaspect · Mod ID: `cytrabackups` · Package: `dev.steelaspect.cytra
 ## Install
 
 1. Install Fabric Loader 0.19.5+ and Fabric API for 1.21.11.
-2. Put `cytrabackups-1.0.0.jar` into `mods/` on the server. Clients may also install it to get the GUI; it is optional.
+2. Download `cytrabackups-<version>.jar` from [Releases](https://github.com/steelaspect/cytrabackups/releases/latest) and put it into `mods/` on the server (or your singleplayer game). Clients may also install it to get the GUI; it is optional.
 3. Start the server once. `config/cytrabackups.json` is created with comments, and backups go to `backups/cytrabackups/` next to the world.
 
 The jar bundles its libraries through Fabric jar-in-jar: aircompressor 2.0.3 (pure-Java zstd), fabric-permissions-api 0.6.1 and JSch 2.28.7 (pure-Java SFTP).
@@ -55,14 +69,17 @@ The jar bundles its libraries through Fabric jar-in-jar: aircompressor 2.0.3 (pu
 ./gradlew build
 ```
 
-Output: **`build/libs/cytrabackups-1.0.0.jar`**, the mod jar with bundled libraries. `build/libs/cytrabackups-1.0.0-sources.jar` holds the sources.
+Output: **`build/libs/cytrabackups-1.2.0.jar`**, the mod jar with bundled libraries. `build/libs/cytrabackups-1.2.0-sources.jar` holds the sources.
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): pushing a tag such as `v1.2.0` builds the jar, runs the unit tests and server GameTests, and publishes a release with notes from `CHANGELOG.md`.
 
 - Requires JDK 21. The build uses Gradle 9.7.1 (wrapper) and Fabric Loom 1.17.21 with official Mojang mappings.
 - Loom 1.18 needs Java 25 to run Gradle, so 1.17.21 is used to keep the whole toolchain on Java 21.
 - Unit tests: `./gradlew test`
 - Off-site integration tests: `./gradlew integrationTest`. These run against embedded S3, SFTP and WebDAV servers and are kept out of `build` because of their large test-only dependencies.
 - Headless server GameTests: `./gradlew runGameTest`. This starts a dedicated test server, runs the tests and exits non-zero on failure.
-- Client GameTest (real client, GUI and singleplayer): `./gradlew runClientGameTest` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`. It has not yet passed in a headless environment (see [Tests](#tests)).
+- Client GameTest (real client, GUI and singleplayer): `./gradlew runClientGameTest` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`. The singleplayer part has not yet passed in a headless environment (see [Tests](#tests)).
+- GUI screenshots only (works headless, e.g. `xvfb-run`): `CYTRA_GUI_PREVIEW_ONLY=1 ./gradlew runClientGameTest` renders every screen with sample data on the title screen.
 
 ## Commands
 
@@ -74,7 +91,7 @@ All commands are under `/backup` (`/backup help` lists them). `<id>` suggests ex
 | `list [page]` | `list` | Paged list, newest first; click an id for details, `[Restore]`, `[Pin]` |
 | `info <id>` | `list` | Size, dedup savings, trigger, creator, versions, action buttons |
 | `diff <id1> <id2>` | `list` | Added/removed/changed files and changed chunk counts/coordinates |
-| `comment <id> <text>` | `comment` | Set a backup's comment |
+| `comment <id> [text]` | `comment` | Set a backup's comment; without text it clears it |
 | `pin <id>` / `unpin <id>` | `pin` | Pinned backups are never pruned (and cannot be deleted) |
 | `delete <id>` | `delete` | Delete a backup (asks to confirm) |
 | `restore <id>` | `restore` | Full restore: confirm → countdown → kick → pre-restore backup → apply before the world loads |
@@ -98,12 +115,36 @@ The console gets the confirmation token printed (`type: backup confirm <token>`)
 
 ### Client GUI (optional)
 
-With the mod installed on the client, open the manager with `/backupgui` or a key binding (Controls → CytraBackups; unbound by default).
+With the mod installed on the client, everything the mod can do is also in the GUI. Open it with `/backupgui`, the **Backups** button in the pause menu, or a key binding (Controls → CytraBackups; unbound by default).
 
-- The list shows date, trigger, size, comment and pin state.
-- Buttons: create (with a comment), restore, pin/unpin, delete, and **Chunks…**. Chunks… opens a map-style selector: loaded chunks are drawn from their top-block map colors, and you drag to select. Coordinates can also be typed.
-- Every GUI action goes through the same server-side permission checks as the commands.
-- On servers without CytraBackups, the GUI says so and sends nothing.
+- **Backups tab:** the list (date, trigger, size, comment, pin). Click to select, double-click for details. Buttons for the selected backup:
+  - Info, Compare… (with any other backup) and Diff prev
+  - Restore… (whole world) and Area… (map selector)
+  - Verify, Export, Pin/Unpin, Comment… (empty clears it) and Delete…
+  - Create backup, with an optional comment
+- **Area… (map selector):**
+  - Loaded chunks are painted once into a small texture with map colours and height shading, then drawn with a single blit, so it stays smooth at any zoom.
+  - Drag to select. **Around me** selects a radius around you and **Whole region** selects a 32×32 region file. You can also type chunk coordinates.
+  - Pick any dimension; the map is only shown for the one you are in.
+  - Selection, hover text and the confirmation show chunk and block coordinates.
+- **Restore tab:** show, cancel or apply the queued restore; roll back the last restore; cancel a countdown or running job.
+- **Tools tab:**
+  - status, cancel job and all commands
+  - prune preview (dry run), prune now and garbage collection
+  - import a world folder or `.zip`
+  - off-site status and sync now
+  - settings and config reload
+- **Settings…:** an editor for **every** option in `config/cytrabackups.json`, grouped by section, with the config comment as each setting's tooltip.
+  - On/off toggles, choice buttons, number, text and list fields.
+  - Passwords, keys and the Discord webhook are never sent to the client. You only see whether they are set, and can replace or clear them.
+  - Save sends only the changed values. The server validates them, writes the file and reloads. Invalid values are shown in red and nothing is saved.
+  - Needs `cytrabackups.admin`.
+- **Output panel:** the server's replies, with chat colours. Links such as `[Confirm]`, `[Info]` or `[Diff prev]` can be clicked.
+- **How it works:**
+  - Every button runs the matching `/backup` command on the server as you, so permissions, checks and messages are identical to typing it. Each one is written to the server log (`<player> ran /backup ... from the CytraBackups GUI`).
+  - Confirmations (restore, delete, rollback, apply pending) open a dialog instead of chat links.
+  - Buttons you have no permission for are greyed out.
+  - On servers without CytraBackups (or with a different version of the GUI protocol), the GUI says so and sends nothing.
 
 ## Permissions
 
@@ -139,7 +180,7 @@ In singleplayer, commands need cheats enabled (or "Allow Commands" when opening 
 **Partial restore (chunks, region, radius)**
 
 1. A restore is attempted **live** when all of these hold:
-   - no player is within view distance + 2 chunks of the area,
+   - no player is close enough to keep the area in memory. Minecraft keeps chunk holders for view distance + 13 chunks around each player (the player ticket spreads outwards until `ChunkLevel.MAX_LEVEL`; the `holderRangeMatchesTickets` gametest checks this against the real ticket system), so in singleplayer with render distance 12 you need to be at least 26 chunks (416 blocks) away. The exact distance is in the message when a restore is queued,
    - nothing in or next to it is force-loaded,
    - autosave is on,
    - every selected chunk fully unloads within `liveUnloadTimeoutSeconds`.
@@ -147,7 +188,7 @@ In singleplayer, commands need cheats enabled (or "Allow Commands" when opening 
    Unloaded means no chunk holder, no pending unload and no loaded entity sections.
 2. Pending chunk IO is flushed, then a backup of just the affected region/entity/POI files is taken.
 3. In one server tick, safety is re-checked and the backup's chunk NBT is written through Minecraft's own IO workers. `ChunkMap`, `EntityStorage` and `PoiManager` caches for those chunks are evicted, so the next load reads the restored data. Chunks that did not exist in the backup are deleted, so they regenerate.
-4. If it is not safe (for example a player is nearby, the chunks are force-loaded, or they stayed loaded), the restore is **queued for the next start** and the reason is reported.
+4. If it is not safe (for example a player is nearby, the chunks are force-loaded, or they stayed loaded), the restore is **queued for the next start** and the reason is reported. In singleplayer "next start" means the next time the world is opened.
 
    `/backup pending apply` restarts right away. At startup the region files are merged: only the selected chunks are replaced, and everything else in those region files is kept.
 
@@ -183,7 +224,17 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
 
 ## Configuration
 
-`config/cytrabackups.json` is JSON with `//` comments. Invalid values are rejected on `/backup reload` and the old config is kept. The full default file:
+`config/cytrabackups.json` is JSON with `//` comments. Edit it in game with **Settings…** in the GUI, or by hand followed by `/backup reload`.
+
+Invalid values are rejected and the old config is kept:
+- unknown choices;
+- negative numbers;
+- compression levels outside 1-19 (zstd) or 1-9 (deflate);
+- ports outside 1-65535;
+- permission levels outside 0-4;
+- bad `HH:mm` times or time zones.
+
+Choice values are case-insensitive (`"Shutdown"` becomes `"shutdown"`). The full default file:
 
 ```jsonc
 // CytraBackups configuration. Reload with /backup reload. Comments are regenerated on save.
@@ -246,9 +297,13 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
     // Keep rules are combined: a backup survives if ANY rule keeps it. Set all to 0 to keep everything
     // (then only maxAgeDays / maxTotalSizeGiB delete). Pinned backups are never pruned.
     "keepLast": 12,
+    // Keep the newest backup of each of the last N hours.
     "keepHourly": 24,
+    // Keep the newest backup of each of the last N days.
     "keepDaily": 7,
+    // Keep the newest backup of each of the last N weeks.
     "keepWeekly": 4,
+    // Keep the newest backup of each of the last N months.
     "keepMonthly": 6,
     // Delete unpinned backups older than this many days, even if a keep rule matches. 0 = off.
     "maxAgeDays": 0.0,
@@ -258,6 +313,7 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
     "alwaysKeepLatest": true,
     // Keep automatic pre-restore backups for preRestoreMaxAgeDays regardless of other keep rules (0 = forever).
     "keepPreRestore": true,
+    // Days to keep automatic pre-restore backups when keepPreRestore is on (0 = forever).
     "preRestoreMaxAgeDays": 14.0,
     // Delete blobs no longer referenced by any backup after pruning.
     "garbageCollect": true
@@ -295,12 +351,19 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   "discord": {
     // Post notifications to a Discord webhook.
     "enabled": false,
+    // Discord channel webhook URL (Channel settings > Integrations > Webhooks).
     "webhookUrl": "",
+    // Name the webhook posts as.
     "username": "CytraBackups",
+    // Post when a backup finishes.
     "onBackupSuccess": true,
+    // Post when a backup fails.
     "onBackupFailure": true,
+    // Post when a restore or rollback is scheduled or applied.
     "onRestore": true,
+    // Post when free disk space drops below lowDiskWarningMiB.
     "onLowDisk": true,
+    // Post when pruning deletes backups.
     "onPrune": false,
     // Warn when free space on the storage disk drops below this many MiB.
     "lowDiskWarningMiB": 4096,
@@ -317,22 +380,33 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
     "s3": {
       // e.g. https://s3.eu-central-1.amazonaws.com, https://<account>.r2.cloudflarestorage.com, https://s3.us-west-004.backblazeb2.com
       "endpoint": "",
+      // Region name used for request signing, e.g. us-east-1 ("auto" for Cloudflare R2).
       "region": "us-east-1",
+      // Bucket name.
       "bucket": "",
+      // Key prefix (folder) inside the bucket.
       "prefix": "cytrabackups/",
+      // Access key ID.
       "accessKey": "",
+      // Secret access key.
       "secretKey": "",
       // Path-style URLs (endpoint/bucket/key). Needed for MinIO and most self-hosted services.
       "pathStyle": true
     },
     "sftp": {
+      // SFTP server host name or IP.
       "host": "",
+      // SSH port.
       "port": 22,
+      // Login user name.
       "username": "",
+      // Login password (not needed with a private key).
       "password": "",
       // Path to a private key (relative to the server folder). Used instead of the password when set.
       "privateKey": "",
+      // Passphrase of the private key, if it has one.
       "privateKeyPassphrase": "",
+      // Remote folder for the backups (created if missing).
       "remoteDir": "cytrabackups",
       // "tofu" = trust the host key on first connect and pin it (stored next to the backups), "yes" = known_hosts only, "no" = never check.
       "hostKeyChecking": "tofu"
@@ -340,7 +414,9 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
     "webdav": {
       // Base URL of the target folder, e.g. https://cloud.example.com/remote.php/dav/files/me/backups/
       "url": "",
+      // WebDAV user name.
       "username": "",
+      // WebDAV password or app password.
       "password": ""
     }
   },
@@ -367,7 +443,7 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
 
 ## Tests
 
-- **Unit tests** (`./gradlew test`, 57 tests) cover the pure-Java core:
+- **Unit tests** (`./gradlew test`, 62 tests) cover the pure-Java core:
   - dedup (unchanged world adds no blobs; one changed chunk stores exactly one blob; duplicate files; large-file pieces; skip-if-unchanged)
   - manifest round-trip
   - every pruning strategy (keep-last, hourly/daily/weekly/monthly, ISO weeks, max age, max size with shared blobs, pins, pre-restore window)
@@ -375,6 +451,7 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   - hash verification and corruption detection
   - full restore, chunk restore, recycle-bin rollback, journal crash recovery, aborting a restore on a corrupt blob
   - garbage collection, diff, config parsing and validation, off-site sync and destination switching, S3 SigV4 key derivation
+  - the GUI settings editor: every setting has a type and tooltip, secrets are never sent, edits apply to a copy, bad values give readable problems, saved edits survive a reload
   - the Discord client against a local webhook endpoint (payload format, 429 `Retry-After` retries, HTTP errors, Discord's length limits)
 - **Off-site integration tests** (`./gradlew integrationTest`, 12 tests) use real servers embedded in the test:
   - **S3:** [S3Proxy](https://github.com/gaul/s3proxy), which verifies every AWS SigV4 signature. Covers keys with special characters, a wrong secret (403), and a full mirror including pruned deletes.
@@ -385,7 +462,13 @@ Blob hashes are over the *uncompressed* content, so changing the compression set
   2. modify the world and back up again
   3. full restore and rollback through the startup-restore code path (checking the block in the restored region NBT)
   4. modify again, unload the chunk, **live chunk restore**, then reload it and assert the original block is back
-  5. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
+  5. the live-restore distance check matches Minecraft's real ticket system (chunk holders reach exactly view distance + 13 chunks)
+  6. the GUI command channel with real (mock-connection) players:
+     - an op's GUI action runs and its output reaches the GUI;
+     - "delete" asks through a dialog request, and denying it keeps the backup;
+     - a non-op gets exactly the refusal typing the command gives;
+     - non-`/backup` commands are refused
+  7. fabric-permissions-api decisions (what LuckPerms and similar mods plug into) override the op fallback in both directions, including command-tree visibility
 - **Client GameTest** (`runClientGameTest`, not yet verified): a real client with a singleplayer world, driven with mouse and keyboard. It is written to check that:
   - `/backupgui` opens the list;
   - "Create backup" and "Pin" work;

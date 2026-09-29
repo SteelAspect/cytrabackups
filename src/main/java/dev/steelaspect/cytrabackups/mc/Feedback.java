@@ -34,7 +34,7 @@ public interface Feedback {
 			if (player != null) {
 				if (!player.hasDisconnected()) {
 					player.sendSystemMessage(message);
-					CytraNetworking.sendMessage(player, message.getString(), error);
+					CytraNetworking.sendMessage(player, message, error);
 				}
 			} else if (error) {
 				source.sendFailure(message);

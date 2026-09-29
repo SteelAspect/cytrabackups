@@ -1,0 +1,24 @@
+accessWidener	v2	named
+
+# Live partial restore: inspect chunk/entity/POI caches so chunks are only rewritten while fully unloaded.
+accessible	field	net/minecraft/server/level/ChunkMap	pendingUnloads	Lit/unimi/dsi/fastutil/longs/Long2ObjectLinkedOpenHashMap;
+accessible	field	net/minecraft/server/level/ChunkMap	chunkTypeCache	Lit/unimi/dsi/fastutil/longs/Long2ByteMap;
+accessible	method	net/minecraft/server/level/ChunkMap	getVisibleChunkIfPresent	(J)Lnet/minecraft/server/level/ChunkHolder;
+accessible	field	net/minecraft/server/level/ServerLevel	entityManager	Lnet/minecraft/world/level/entity/PersistentEntitySectionManager;
+accessible	field	net/minecraft/world/level/entity/PersistentEntitySectionManager	permanentStorage	Lnet/minecraft/world/level/entity/EntityPersistentStorage;
+accessible	field	net/minecraft/world/level/entity/PersistentEntitySectionManager	chunkLoadStatuses	Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
+accessible	field	net/minecraft/world/level/entity/PersistentEntitySectionManager	chunksToUnload	Lit/unimi/dsi/fastutil/longs/LongSet;
+accessible	field	net/minecraft/world/level/entity/PersistentEntitySectionManager	sectionStorage	Lnet/minecraft/world/level/entity/EntitySectionStorage;
+accessible	field	net/minecraft/world/level/chunk/storage/EntityStorage	emptyChunks	Lit/unimi/dsi/fastutil/longs/LongSet;
+accessible	field	net/minecraft/world/level/chunk/storage/EntityStorage	simpleRegionStorage	Lnet/minecraft/world/level/chunk/storage/SimpleRegionStorage;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	simpleRegionStorage	Lnet/minecraft/world/level/chunk/storage/SimpleRegionStorage;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	storage	Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	dirtyChunks	Lit/unimi/dsi/fastutil/longs/LongLinkedOpenHashSet;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	loadedChunks	Lit/unimi/dsi/fastutil/longs/LongSet;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	pendingLoads	Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
+accessible	field	net/minecraft/world/level/chunk/storage/SectionStorage	loadLock	Ljava/lang/Object;
+accessible	method	net/minecraft/world/level/chunk/storage/SectionStorage	onSectionLoad	(J)V
+accessible	field	net/minecraft/world/entity/ai/village/poi/PoiManager	loadedChunks	Lit/unimi/dsi/fastutil/longs/LongSet;
+accessible	field	net/minecraft/server/level/ServerLevel	structureCheck	Lnet/minecraft/world/level/levelgen/structure/StructureCheck;
+accessible	field	net/minecraft/world/level/levelgen/structure/StructureCheck	loadedChunks	Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
+accessible	field	net/minecraft/world/level/levelgen/structure/StructureCheck	featureChecks	Ljava/util/Map;

@@ -1,6 +1,6 @@
 name: Release
 
-# Builds the mod, runs the unit tests and server GameTests, and publishes a GitHub release with the jar attached.
+# Builds the mod, runs the unit tests and server GameTests, and publishes a GitHub release with only the mod jar attached.
 # Runs when a tag like v1.2.0 is pushed, or manually ("Run workflow"): then the version comes from gradle.properties
 # and the tag v<version> is created on the selected branch. Release notes come from CHANGELOG.md.
 on:
@@ -54,5 +54,9 @@ jobs:
           name: CytraBackups ${{ steps.version.outputs.version }} for Minecraft 1.21.11
           body_path: release-notes.md
           make_latest: true
-          files: |
-            build/libs/cytrabackups-*.jar
+          files: build/libs/cytrabackups-${{ steps.version.outputs.version }}.jar
+
+      - name: Ship only the mod jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete-asset "v${{ steps.version.outputs.version }}" "cytrabackups-${{ steps.version.outputs.version }}-sources.jar" -y -R "${{ github.repository }}" || true

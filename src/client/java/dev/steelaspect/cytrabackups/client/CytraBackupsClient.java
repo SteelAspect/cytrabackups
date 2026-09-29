@@ -19,7 +19,6 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -65,11 +64,10 @@ public final class CytraBackupsClient implements ClientModInitializer {
 	/** A GUI action needs confirmation: show a dialog and answer with /backup confirm|deny <token>. */
 	private static void prompt(Minecraft mc, PromptPayload p) {
 		Screen back = mc.screen;
-		mc.setScreen(new ConfirmScreen(yes -> {
+		mc.setScreen(new ConfirmDialog(p.title(), p.details() + " (Expires after " + p.timeoutSeconds() + " seconds.)", "Confirm", Theme.DANGER, yes -> {
 			mc.setScreen(back);
 			ClientState.run("backup " + (yes ? "confirm " : "deny ") + p.token());
-		}, Component.literal(p.title()), Component.literal(p.details() + "\n\nThis dialog expires after " + p.timeoutSeconds() + " seconds."),
-			Component.literal("Confirm"), Component.literal("Cancel")));
+		}));
 	}
 
 	public static void open(Minecraft mc) {

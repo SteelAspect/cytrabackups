@@ -4,11 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 import org.lwjgl.glfw.GLFW;
 
 /** Small dialog with labelled text fields; OK passes the values to a callback and returns to the parent screen. */
@@ -33,26 +33,38 @@ final class FormScreen extends Screen {
 		this.onOk = onOk;
 	}
 
-	private int top() {
-		return Math.max(40, height / 2 - 20 - fields.size() * 18);
+	private int panelW() {
+		return Math.min(340, width - 40);
+	}
+
+	private int panelH() {
+		return 14 + 28 + fields.size() * 34 + 30;
+	}
+
+	private int panelX() {
+		return (width - panelW()) / 2;
+	}
+
+	private int panelY() {
+		return Math.max(28, (height - panelH()) / 2);
 	}
 
 	@Override
 	protected void init() {
 		boxes.clear();
-		int w = Math.min(320, width - 40);
-		int x = (width - w) / 2;
-		int y = top() + 24;
+		int x = panelX() + 12, w = panelW() - 24;
+		int y = panelY() + 14 + 28;
 		for (Field f : fields) {
-			EditBox b = new EditBox(font, x, y + 10, w, 20, Component.literal(f.label()));
+			EditBox b = new EditBox(font, x, y + 11, w, 18, Component.literal(f.label()));
 			b.setMaxLength(f.maxLength());
 			b.setValue(f.initial());
 			if (!f.hint().isEmpty()) b.setHint(Component.literal(f.hint()));
 			boxes.add(addRenderableWidget(b));
-			y += 36;
+			y += 34;
 		}
-		addRenderableWidget(Button.builder(Component.literal(okLabel), b -> submit()).bounds(width / 2 - 104, y + 6, 100, 20).build());
-		addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose()).bounds(width / 2 + 4, y + 6, 100, 20).build());
+		int by = panelY() + panelH() - 26;
+		addRenderableWidget(new FlatButton(panelX() + panelW() / 2 - 104, by, 100, 20, okLabel, Theme.SUCCESS, b -> submit()));
+		addRenderableWidget(new FlatButton(panelX() + panelW() / 2 + 4, by, 100, 20, "Cancel", Theme.NEUTRAL, b -> onClose()));
 		if (!boxes.isEmpty()) setInitialFocus(boxes.getFirst());
 	}
 
@@ -73,19 +85,22 @@ final class FormScreen extends Screen {
 	}
 
 	@Override
+	public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+		super.renderBackground(g, mouseX, mouseY, partialTick);
+		Theme.header(g, font, width, "CytraBackups", "");
+		Theme.titledPanel(g, font, panelX(), panelY(), panelW(), panelH(), title.getString(), Theme.TITLE);
+	}
+
+	@Override
 	public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
 		super.render(g, mouseX, mouseY, partialTick);
-		int w = Math.min(320, width - 40);
-		int x = (width - w) / 2;
-		g.drawCenteredString(font, title, width / 2, top() - 8, 0xFFFFAA00);
-		if (!description.isEmpty()) {
-			List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(description), w);
-			for (int i = 0; i < lines.size() && i < 2; i++) g.drawCenteredString(font, lines.get(i), width / 2, top() + 4 + i * 10 - (lines.size() > 1 ? 5 : 0), 0xFFA0A0A0);
-		}
-		int y = top() + 24;
+		int x = panelX() + 12;
+		List<FormattedCharSequence> lines = font.split(Component.literal(description), panelW() - 24);
+		for (int i = 0; i < lines.size() && i < 2; i++) g.drawString(font, lines.get(i), x, panelY() + 20 + i * 10, Theme.MUTED);
+		int y = panelY() + 14 + 28;
 		for (Field f : fields) {
-			g.drawString(font, f.label(), x, y, 0xFFE0E0E0);
-			y += 36;
+			g.drawString(font, f.label(), x, y, Theme.TEXT);
+			y += 34;
 		}
 	}
 

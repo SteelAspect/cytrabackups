@@ -12,6 +12,7 @@
 			"dev.steelaspect.cytrabackups.gametest.GuiChannelGameTest"
 		],
 		"fabric-client-gametest": [
+			"dev.steelaspect.cytrabackups.gametest.GuiPreviewClientGameTest",
 			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest"
 		]
 	},

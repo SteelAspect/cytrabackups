@@ -1,10 +1,24 @@
-# CytraBackups (Fabric 1.21.11)
+# CytraBackups
 
-Deduplicating world backups for technical Fabric servers, for **Minecraft Java 1.21.11**.
+![Minecraft 1.21.11](https://img.shields.io/badge/Minecraft-1.21.11-3c8527)
+![Fabric](https://img.shields.io/badge/loader-Fabric-dbd0b4)
+![Java 21](https://img.shields.io/badge/Java-21-e76f00)
+![License MIT](https://img.shields.io/badge/license-MIT-blue)
+[![Latest release](https://img.shields.io/github/v/release/steelaspect/cytrabackups?label=download)](https://github.com/steelaspect/cytrabackups/releases/latest)
+
+**Deduplicating world backups for Fabric servers and singleplayer, Minecraft Java 1.21.11.** Only changed chunks are stored again, restores are safe and undoable, and everything can be done from chat commands or an in-game GUI.
 
 - **Server-side only.** Vanilla clients can use every feature through `/backup` commands and clickable chat.
 - **Built for panel hosts** (Pterodactyl and similar). Everything runs in pure Java inside the server process: no root, no shell scripts, no external binaries, no cron.
-- **Optional client GUI** in the same jar (`environment: "*"`). Players without the mod lose nothing, and the server never requires it.
+- **Optional client GUI** in the same jar. Players without the mod lose nothing, and the server never requires it.
+
+**[⬇ Download the latest release](https://github.com/steelaspect/cytrabackups/releases/latest)** · [Changelog](CHANGELOG.md)
+
+| Backups | Settings |
+|---|---|
+| ![Backups tab](docs/images/gui-backups.png) | ![Settings](docs/images/gui-settings.png) |
+| **Tools** | **Confirmation** |
+| ![Tools tab](docs/images/gui-tools.png) | ![Confirm dialog](docs/images/gui-confirm.png) |
 
 Author: steelaspect · Mod ID: `cytrabackups` · Package: `dev.steelaspect.cytrabackups` · License: MIT
 
@@ -44,7 +58,7 @@ Author: steelaspect · Mod ID: `cytrabackups` · Package: `dev.steelaspect.cytra
 ## Install
 
 1. Install Fabric Loader 0.19.5+ and Fabric API for 1.21.11.
-2. Put `cytrabackups-1.1.0.jar` into `mods/` on the server. Clients may also install it to get the GUI; it is optional.
+2. Download `cytrabackups-<version>.jar` from [Releases](https://github.com/steelaspect/cytrabackups/releases/latest) and put it into `mods/` on the server (or your singleplayer game). Clients may also install it to get the GUI; it is optional.
 3. Start the server once. `config/cytrabackups.json` is created with comments, and backups go to `backups/cytrabackups/` next to the world.
 
 The jar bundles its libraries through Fabric jar-in-jar: aircompressor 2.0.3 (pure-Java zstd), fabric-permissions-api 0.6.1 and JSch 2.28.7 (pure-Java SFTP).
@@ -55,14 +69,17 @@ The jar bundles its libraries through Fabric jar-in-jar: aircompressor 2.0.3 (pu
 ./gradlew build
 ```
 
-Output: **`build/libs/cytrabackups-1.1.0.jar`**, the mod jar with bundled libraries. `build/libs/cytrabackups-1.1.0-sources.jar` holds the sources.
+Output: **`build/libs/cytrabackups-1.2.0.jar`**, the mod jar with bundled libraries. `build/libs/cytrabackups-1.2.0-sources.jar` holds the sources.
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): pushing a tag such as `v1.2.0` builds the jar, runs the unit tests and server GameTests, and publishes a release with notes from `CHANGELOG.md`.
 
 - Requires JDK 21. The build uses Gradle 9.7.1 (wrapper) and Fabric Loom 1.17.21 with official Mojang mappings.
 - Loom 1.18 needs Java 25 to run Gradle, so 1.17.21 is used to keep the whole toolchain on Java 21.
 - Unit tests: `./gradlew test`
 - Off-site integration tests: `./gradlew integrationTest`. These run against embedded S3, SFTP and WebDAV servers and are kept out of `build` because of their large test-only dependencies.
 - Headless server GameTests: `./gradlew runGameTest`. This starts a dedicated test server, runs the tests and exits non-zero on failure.
-- Client GameTest (real client, GUI and singleplayer): `./gradlew runClientGameTest` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`. It has not yet passed in a headless environment (see [Tests](#tests)).
+- Client GameTest (real client, GUI and singleplayer): `./gradlew runClientGameTest` on a desktop. Screenshots land in `build/run/clientGameTest/screenshots/`. The singleplayer part has not yet passed in a headless environment (see [Tests](#tests)).
+- GUI screenshots only (works headless, e.g. `xvfb-run`): `CYTRA_GUI_PREVIEW_ONLY=1 ./gradlew runClientGameTest` renders every screen with sample data on the title screen.
 
 ## Commands
 

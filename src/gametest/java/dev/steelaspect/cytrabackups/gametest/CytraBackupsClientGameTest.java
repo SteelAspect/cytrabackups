@@ -1,6 +1,7 @@
 package dev.steelaspect.cytrabackups.gametest;
 
 import dev.steelaspect.cytrabackups.client.BackupScreen;
+import dev.steelaspect.cytrabackups.client.ConfirmDialog;
 import dev.steelaspect.cytrabackups.client.ChunkSelectorScreen;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperation;
@@ -15,7 +16,6 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
 import net.minecraft.client.gui.screens.ChatScreen;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -67,6 +67,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		if (System.getenv("CYTRA_GUI_PREVIEW_ONLY") != null) return; // only the GUI preview screenshots
 		BlockPos marker;
 		int beforeId;
 		TestWorldSave save;
@@ -125,7 +126,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(2);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
 			ctx.clickScreenButton("Restore selection...");
-			ctx.waitForScreen(ConfirmScreen.class); // the server's confirmation, shown as a dialog
+			ctx.waitForScreen(ConfirmDialog.class); // the server's confirmation, shown as a dialog
 			ctx.takeScreenshot("cytrabackups-4-confirm-chunks");
 			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "chunk restore queued", () -> onServer(server, s -> {
@@ -145,7 +146,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 
 			clickRow(ctx, 1);
 			ctx.clickScreenButton("Restore...");
-			ctx.waitForScreen(ConfirmScreen.class);
+			ctx.waitForScreen(ConfirmDialog.class);
 			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "restore countdown", () -> onServer(server, s -> BackupManager.get().countdownLabel() != null));
 			ctx.waitTicks(20);

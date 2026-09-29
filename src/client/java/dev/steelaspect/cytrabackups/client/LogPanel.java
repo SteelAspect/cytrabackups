@@ -54,14 +54,12 @@ final class LogPanel {
 
 	void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
 		rewrap(font);
-		g.fill(x, y, x + w, y + h, 0xA0000000);
-		g.renderOutline(x, y, w, h, 0xFF404040);
 		int visible = visibleLines();
 		int maxScroll = Math.max(0, lines.size() - visible);
 		scroll = Math.min(scroll, maxScroll);
 		int first = Math.max(0, lines.size() - visible - scroll);
 		if (lines.isEmpty()) {
-			g.drawString(font, "Output of your actions appears here. Underlined/bold [links] can be clicked.", x + 4, y + 3, 0xFF707070);
+			g.drawString(font, "Results of your actions appear here. [Links] in the text can be clicked.", x + 4, y + 3, Theme.FAINT);
 		}
 		g.enableScissor(x, y, x + w, y + h);
 		for (int i = 0; i < visible && first + i < lines.size(); i++) {
@@ -71,7 +69,7 @@ final class LogPanel {
 		if (maxScroll > 0) {
 			int barH = Math.max(8, h * visible / lines.size());
 			int barY = y + (h - barH) * (maxScroll - scroll) / maxScroll;
-			g.fill(x + w - 3, barY, x + w - 1, barY + barH, 0xFF808080);
+			g.fill(x + w - 3, barY, x + w - 1, barY + barH, Theme.ACCENT);
 		}
 		Style s = styleAt(font, mouseX, mouseY);
 		if (s != null && s.getHoverEvent() instanceof HoverEvent.ShowText(var text)) g.setTooltipForNextFrame(text, mouseX, mouseY);

@@ -10,13 +10,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
@@ -27,8 +25,19 @@ import net.minecraft.util.FormattedCharSequence;
  * config/cytrabackups.json and applies with a reload.
  */
 final class SettingsScreen extends Screen {
-	private static final int ROW_H = 24;
-	private static final int SIDE_W = 96;
+	private static final int ROW_H = 22;
+	private static final int SIDE_W = 104;
+	private static final int TOP = 30;
+	private static final Map<String, String> SECTION_HELP = Map.of(
+		"general", "Storage location, speed limits, what gets backed up",
+		"compression", "How stored data is compressed",
+		"schedule", "When automatic backups run",
+		"prune", "Which old backups are kept and which are deleted",
+		"restore", "Confirmations, countdown and how restores are applied",
+		"progress", "Boss bar, action bar and announcements",
+		"discord", "Notifications to a Discord webhook",
+		"offsite", "Copies to S3, SFTP or WebDAV",
+		"permissions", "Op levels used when no permissions mod decides");
 	private static String section = "schedule"; // remembered while the game runs
 
 	private final Screen parent;
@@ -37,7 +46,9 @@ final class SettingsScreen extends Screen {
 	private long seenConfig = -1;
 	private int scroll;
 	private boolean saving;
-	private Button saveButton, revertButton;
+	private FlatButton saveButton, revertButton;
+	// layout of the settings panel, computed in init() from the labels of the current section
+	private int panelX, panelW, labelW, widgetW;
 
 	private record Row(ConfigSchema.Entry entry, String label, List<AbstractWidget> widgets) {
 	}
@@ -49,19 +60,11 @@ final class SettingsScreen extends Screen {
 	}
 
 	private int rowsTop() {
-		return 34;
+		return TOP + 22;
 	}
 
 	private int rowsBottom() {
-		return height - 58;
-	}
-
-	private int labelX() {
-		return 10 + SIDE_W + 12;
-	}
-
-	private int widgetW() {
-		return Math.max(90, Math.min(220, (width - labelX() - 10) / 2));
+		return height - 52;
 	}
 
 	private List<String> sections(ConfigPayload cfg) {
@@ -76,41 +79,48 @@ final class SettingsScreen extends Screen {
 		ConfigPayload cfg = ClientState.config;
 		seenConfig = ClientState.configVersion;
 		int by = height - 24;
-		saveButton = addRenderableWidget(Button.builder(Component.literal("Save"), b -> save()).bounds(width / 2 - 154, by, 100, 20)
-			.tooltip(Tooltip.create(Component.literal("Validate, write config/cytrabackups.json and apply the changes now"))).build());
-		revertButton = addRenderableWidget(Button.builder(Component.literal("Revert"), b -> {
+		saveButton = addRenderableWidget(new FlatButton(width / 2 - 154, by, 100, 20, "Save", Theme.SUCCESS, b -> save())
+			.tooltip("Validate, write config/cytrabackups.json and apply the changes now"));
+		revertButton = addRenderableWidget(new FlatButton(width / 2 - 50, by, 100, 20, "Revert", Theme.WARNING, b -> {
 			edits.clear();
 			rebuildWidgets();
-		}).bounds(width / 2 - 50, by, 100, 20).tooltip(Tooltip.create(Component.literal("Forget unsaved changes"))).build());
+		}).tooltip("Forget unsaved changes"));
+		addRenderableWidget(new FlatButton(width / 2 + 54, by, 100, 20, "Back", Theme.NEUTRAL, b -> onClose()));
 		updateButtons();
-		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(width / 2 + 54, by, 100, 20).build());
 		if (cfg == null) return;
 		List<String> sections = sections(cfg);
 		if (!sections.contains(section)) section = sections.getFirst();
-		int sy = rowsTop();
+		int sy = TOP + 6;
 		for (String s : sections) {
-			Button b = Button.builder(Component.literal(sectionLabel(s)), btn -> {
+			addRenderableWidget(new FlatButton(14, sy, SIDE_W - 4, 18, sectionLabel(s), Theme.NEUTRAL, btn -> {
 				section = s;
 				scroll = 0;
 				rebuildWidgets();
-			}).bounds(10, sy, SIDE_W, 20).build();
-			b.active = !s.equals(section);
-			addRenderableWidget(b);
-			sy += 22;
+			}).asTab(s.equals(section)).tooltip(SECTION_HELP.getOrDefault(s, "")));
+			sy += 20;
 		}
-		int wx = width - 10 - widgetW(), ww = widgetW();
-		for (ConfigSchema.Entry e : cfg.entries()) {
-			if (!e.section().equals(section)) continue;
+
+		List<ConfigSchema.Entry> entries = cfg.entries().stream().filter(e -> e.section().equals(section)).toList();
+		labelW = 120;
+		for (ConfigSchema.Entry e : entries) labelW = Math.max(labelW, font.width(label(e)) + 16);
+		int areaX = 8 + SIDE_W + 18, areaW = width - areaX - 10;
+		labelW = Math.min(labelW, Math.max(120, areaW / 2 - 20));
+		widgetW = Math.max(140, Math.min(230, areaW - labelW - 28));
+		panelW = Math.min(areaW, labelW + widgetW + 28);
+		panelX = areaX + Math.max(0, (areaW - panelW) / 2);
+		int wx = panelX + 12 + labelW, ww = widgetW;
+
+		for (ConfigSchema.Entry e : entries) {
 			List<AbstractWidget> ws = new ArrayList<>();
 			Tooltip tip = e.comment().isEmpty() ? null : Tooltip.create(Component.literal(e.comment()));
 			String current = edits.getOrDefault(e.path(), e.value());
 			switch (e.type()) {
-				case BOOL -> ws.add(CycleButton.onOffBuilder(Boolean.parseBoolean(current)).displayOnlyValue()
-					.create(wx, 0, ww, 20, Component.literal(e.path()), (btn, v) -> edit(e, String.valueOf(v))));
-				case CHOICE -> ws.add(CycleButton.<String>builder(Component::literal, e.choices().contains(current) ? current : e.choices().getFirst())
-					.withValues(e.choices()).displayOnlyValue().create(wx, 0, ww, 20, Component.literal(e.path()), (btn, v) -> edit(e, v)));
+				case BOOL -> ws.add(new FlatButton.Cycle(wx, 0, ww, 18, List.of("true", "false"), Boolean.parseBoolean(current) ? "true" : "false",
+					v -> v.equals("true") ? Theme.SUCCESS : Theme.DANGER, v -> v.equals("true") ? "ON" : "OFF", v -> edit(e, v)));
+				case CHOICE -> ws.add(new FlatButton.Cycle(wx, 0, ww, 18, e.choices(), e.choices().contains(current) ? current : e.choices().getFirst(),
+					v -> Theme.PRIMARY, v -> v, v -> edit(e, v)));
 				case SECRET -> {
-					EditBox box = new EditBox(font, wx, 0, ww - 44, 20, Component.literal(e.path()));
+					EditBox box = new EditBox(font, wx, 0, ww - 48, 18, Component.literal(e.path()));
 					box.setMaxLength(1024);
 					boolean pendingClear = "".equals(edits.get(e.path()));
 					box.setValue(pendingClear ? "" : edits.getOrDefault(e.path(), ""));
@@ -121,15 +131,15 @@ final class SettingsScreen extends Screen {
 						updateButtons();
 					});
 					ws.add(box);
-					Button clear = Button.builder(Component.literal("Clear"), b -> {
+					FlatButton clear = new FlatButton(wx + ww - 44, 0, 44, 18, "Clear", Theme.DANGER, b -> {
 						edits.put(e.path(), "");
 						rebuildWidgets();
-					}).bounds(wx + ww - 40, 0, 40, 20).tooltip(Tooltip.create(Component.literal("Remove the stored value when you save"))).build();
+					}).tooltip("Remove the stored value when you save");
 					clear.active = e.set() || edits.containsKey(e.path());
 					ws.add(clear);
 				}
 				default -> {
-					EditBox box = new EditBox(font, wx, 0, ww, 20, Component.literal(e.path()));
+					EditBox box = new EditBox(font, wx, 0, ww, 18, Component.literal(e.path()));
 					box.setMaxLength(e.type() == ConfigSchema.Type.LIST ? 8192 : 1024);
 					box.setValue(current);
 					switch (e.type()) {
@@ -144,7 +154,8 @@ final class SettingsScreen extends Screen {
 				}
 			}
 			for (AbstractWidget w : ws) {
-				if (tip != null && !(w instanceof Button && e.type() == ConfigSchema.Type.SECRET)) w.setTooltip(tip);
+				boolean plainButton = w instanceof FlatButton && !(w instanceof FlatButton.Cycle); // the Clear button keeps its own tooltip
+				if (tip != null && !plainButton) w.setTooltip(tip);
 				addRenderableWidget(w);
 			}
 			rows.add(new Row(e, label(e), ws));
@@ -161,6 +172,7 @@ final class SettingsScreen extends Screen {
 	private void updateButtons() {
 		if (saveButton == null) return;
 		saveButton.active = !edits.isEmpty() && !saving;
+		saveButton.setLabel(saving ? "Saving..." : edits.isEmpty() ? "Save" : "Save (" + edits.size() + ")");
 		revertButton.active = !edits.isEmpty();
 	}
 
@@ -173,7 +185,7 @@ final class SettingsScreen extends Screen {
 		for (int i = 0; i < rows.size(); i++) {
 			int idx = i - scroll;
 			boolean vis = idx >= 0 && idx < visibleRows();
-			int y = rowsTop() + idx * ROW_H;
+			int y = rowsTop() + idx * ROW_H + 2;
 			for (AbstractWidget w : rows.get(i).widgets()) {
 				w.visible = vis;
 				w.setY(y);
@@ -201,7 +213,7 @@ final class SettingsScreen extends Screen {
 
 	@Override
 	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-		if (x > labelX() - 4) {
+		if (x >= panelX) {
 			scroll -= (int) Math.signum(scrollY) * 2;
 			layoutRows();
 			return true;
@@ -210,50 +222,67 @@ final class SettingsScreen extends Screen {
 	}
 
 	@Override
+	public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+		super.renderBackground(g, mouseX, mouseY, partialTick);
+		Theme.header(g, font, width, "CytraBackups", "settings");
+		ConfigPayload cfg = ClientState.config;
+		if (cfg == null) return;
+		Theme.panel(g, 8, TOP, SIDE_W + 8, sections(cfg).size() * 20 + 10);
+		int h = Math.min(visibleRows(), Math.max(1, rows.size())) * ROW_H + 22 + 4;
+		Theme.titledPanel(g, font, panelX, TOP, panelW, h, sectionLabel(section), Theme.TITLE);
+		g.drawString(font, Theme.ellipsize(font, SECTION_HELP.getOrDefault(section, ""), panelW - 16 - font.width(sectionLabel(section))),
+			panelX + 12 + font.width(sectionLabel(section)), TOP + 3, Theme.MUTED);
+		for (int i = scroll; i < rows.size() && i - scroll < visibleRows(); i++) {
+			int y = rowsTop() + (i - scroll) * ROW_H;
+			g.fill(panelX + 1, y, panelX + panelW - 1, y + ROW_H, (i % 2 == 0) ? 0x28FFFFFF : 0x10FFFFFF);
+			if (edits.containsKey(rows.get(i).entry().path())) g.fill(panelX + 1, y, panelX + 4, y + ROW_H, Theme.GOLD_TEXT);
+		}
+	}
+
+	@Override
 	public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
 		super.render(g, mouseX, mouseY, partialTick);
-		g.drawString(font, title, 10, 8, 0xFFFFAA00);
-		String hint = edits.isEmpty() ? "Changes are written to config/cytrabackups.json and applied at once." : edits.size() + " unsaved change(s)";
-		g.drawString(font, hint, width - 10 - font.width(hint), 8, edits.isEmpty() ? 0xFFA0A0A0 : 0xFFFFFF55);
+		String hint = saving ? "Saving and reloading..." : edits.isEmpty() ? "Saved to config/cytrabackups.json and applied at once"
+			: edits.size() + " unsaved change(s)";
+		g.drawString(font, hint, width - 10 - font.width(hint), 7, edits.isEmpty() ? Theme.MUTED : Theme.GOLD_TEXT);
 		ConfigPayload cfg = ClientState.config;
 		if (cfg == null) {
 			String msg = ClientState.can(BackupListPayload.CAN_ADMIN) || ClientState.list == null ? "Loading settings..."
 				: "You need the cytrabackups.admin permission to change settings.";
-			g.drawCenteredString(font, msg, width / 2, height / 2 - 10, 0xFFA0A0A0);
+			g.drawCenteredString(font, msg, width / 2, height / 2 - 10, Theme.MUTED);
 			return;
 		}
-		g.drawString(font, sectionLabel(section) + " - hover a setting for help, scroll for more", labelX(), 22, 0xFFA0A0A0);
 		for (int i = scroll; i < rows.size() && i - scroll < visibleRows(); i++) {
 			Row r = rows.get(i);
 			int y = rowsTop() + (i - scroll) * ROW_H;
 			boolean changed = edits.containsKey(r.entry().path());
-			int maxW = width - 10 - widgetW() - labelX() - 8;
-			String text = font.width(r.label()) > maxW ? font.plainSubstrByWidth(r.label(), maxW - 6) + "..." : r.label();
-			g.drawString(font, (changed ? "* " : "") + text, labelX(), y + 6, changed ? 0xFFFFFF55 : 0xFFE0E0E0);
-			if (!r.entry().comment().isEmpty() && mouseX >= labelX() && mouseX < labelX() + maxW && mouseY >= y && mouseY < y + 20) {
+			String text = Theme.ellipsize(font, r.label(), labelW - 8);
+			g.drawString(font, text, panelX + 12, y + 7, changed ? Theme.GOLD_TEXT : Theme.TEXT);
+			if (!r.entry().comment().isEmpty() && mouseX >= panelX + 8 && mouseX < panelX + 8 + labelW && mouseY >= y && mouseY < y + ROW_H) {
 				List<FormattedCharSequence> tip = new ArrayList<>(font.split(Component.literal(r.entry().comment()), 260));
-				tip.addFirst(Component.literal(r.entry().path()).withStyle(net.minecraft.ChatFormatting.GRAY).getVisualOrderText());
+				tip.addFirst(Component.literal(r.entry().path()).withStyle(ChatFormatting.GRAY).getVisualOrderText());
 				g.setTooltipForNextFrame(tip, mouseX, mouseY);
 			}
 		}
 		if (rows.size() > visibleRows()) {
-			int h = rowsBottom() - rowsTop();
+			int h = visibleRows() * ROW_H;
 			int barH = Math.max(10, h * visibleRows() / rows.size());
 			int barY = rowsTop() + (h - barH) * scroll / Math.max(1, rows.size() - visibleRows());
-			g.fill(width - 5, barY, width - 3, barY + barH, 0xFF808080);
+			g.fill(panelX + panelW - 3, barY, panelX + panelW - 1, barY + barH, Theme.ACCENT);
+			g.drawString(font, "scroll for more", panelX + panelW - 4 - font.width("scroll for more"), rowsBottom() + 2, Theme.FAINT);
 		}
-		int py = rowsBottom() + 4;
+		int py = rowsBottom() + 12;
 		for (String p : cfg.problems()) {
 			for (FormattedCharSequence line : font.split(Component.literal(p), width - 20)) {
 				if (py > height - 34) break;
-				g.drawString(font, line, 10, py, 0xFFFF5555);
+				g.drawString(font, line, 10, py, Theme.RED_TEXT);
 				py += 10;
 			}
 		}
 		ClientState.LogLine last = ClientState.lastLog();
 		if (cfg.problems().isEmpty() && last != null && System.currentTimeMillis() - last.at() < 10_000) {
 			List<FormattedCharSequence> lines = font.split(last.text(), width - 20);
-			if (!lines.isEmpty()) g.drawString(font, lines.getFirst(), 10, py, 0xFFE0E0E0);
+			if (!lines.isEmpty()) g.drawCenteredString(font, lines.getFirst(), width / 2, py, Theme.TEXT);
 		}
 	}
 
@@ -298,8 +327,8 @@ final class SettingsScreen extends Screen {
 			minecraft.setScreen(parent);
 			return;
 		}
-		minecraft.setScreen(new ConfirmScreen(yes -> minecraft.setScreen(yes ? parent : this),
-			Component.literal("Discard " + edits.size() + " unsaved change(s)?"), Component.literal("They are not written to the config file.")));
+		minecraft.setScreen(new ConfirmDialog("Discard " + edits.size() + " unsaved change(s)?", "They are not written to the config file.", "Discard",
+			Theme.DANGER, yes -> minecraft.setScreen(yes ? parent : this)));
 	}
 
 	@Override

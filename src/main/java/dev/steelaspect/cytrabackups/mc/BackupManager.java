@@ -1102,7 +1102,7 @@ public final class BackupManager {
 					startupResult = r;
 					r.reported = true;
 					PendingOperationRunner.writeResult(services.storage, r);
-					notifier.restore(r.success ? "Restore applied" : "Restore failed", r.operation + "\n" + r.message, !r.success);
+					// Discord was already notified when the restore was applied (StartupRestore); only players are told here.
 				}
 				PendingOperation op = PendingOperationRunner.readPending(services.storage);
 				if (op != null) CytraBackups.LOGGER.warn("CytraBackups: {} is queued and will be applied on the next restart", op.describe());

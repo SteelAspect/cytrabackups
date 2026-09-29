@@ -7,7 +7,8 @@
 	"environment": "*",
 	"entrypoints": {
 		"fabric-gametest": [
-			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest"
+			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest",
+			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest"
 		]
 	},
 	"depends": {

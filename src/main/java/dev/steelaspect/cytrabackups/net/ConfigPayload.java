@@ -20,7 +20,6 @@ public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> probl
 			buf.writeUtf(e.path(), 256);
 			buf.writeEnum(e.type());
 			buf.writeUtf(e.value(), 8192);
-			buf.writeUtf(e.comment(), 2048);
 			buf.writeVarInt(e.choices().size());
 			for (String c : e.choices()) buf.writeUtf(c, 64);
 			buf.writeBoolean(e.set());
@@ -36,11 +35,10 @@ public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> probl
 			String path = buf.readUtf(256);
 			ConfigSchema.Type type = buf.readEnum(ConfigSchema.Type.class);
 			String value = buf.readUtf(8192);
-			String comment = buf.readUtf(2048);
 			int c = buf.readVarInt();
 			List<String> choices = new ArrayList<>(Math.min(c, 64));
 			for (int j = 0; j < c; j++) choices.add(buf.readUtf(64));
-			entries.add(new ConfigSchema.Entry(path, type, value, comment, choices, buf.readBoolean()));
+			entries.add(new ConfigSchema.Entry(path, type, value, choices, buf.readBoolean()));
 		}
 		int p = buf.readVarInt();
 		List<String> problems = new ArrayList<>(Math.min(p, 256));

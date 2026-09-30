@@ -35,10 +35,10 @@ final class Countdown {
 		}
 		if (ticks % 20 == 0) {
 			int s = ticks / 20;
-			Component bar = Component.literal(label + " — server stops in " + s + "s").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
+			Component bar = Msg.tr("cytrabackups.countdown.bar", label, s).withStyle(ChatFormatting.RED);
 			for (ServerPlayer p : server.getPlayerList().getPlayers()) p.sendSystemMessage(bar, true);
 			if (s == totalSeconds || s == 60 || s == 30 || s == 20 || s == 10 || s <= 5) {
-				server.getPlayerList().broadcastSystemMessage(Msg.warn(label + ": the server stops in " + s + " second" + (s == 1 ? "" : "s") + "."), false);
+				server.getPlayerList().broadcastSystemMessage(Msg.info(s == 1 ? "cytrabackups.countdown.chat_one" : "cytrabackups.countdown.chat", label, s), false);
 			}
 		}
 		ticks--;

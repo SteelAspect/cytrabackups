@@ -59,10 +59,6 @@ public final class Hash implements Comparable<Hash> {
 		return new Hash(md.digest());
 	}
 
-	public byte[] toBytes() {
-		return bytes.clone();
-	}
-
 	/** Writes the raw digest without copying. */
 	public void writeTo(MessageDigest md) {
 		md.update(bytes);

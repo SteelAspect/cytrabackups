@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.transfer;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Progress;
@@ -40,7 +41,7 @@ public final class ZipExporter {
 		Files.createDirectories(outDir);
 		Path target = outDir.resolve(name);
 		Path partial = outDir.resolve(name + ".part");
-		progress.phase("Exporting backup #" + id);
+		progress.phase(Lang.get("cytrabackups.phase.export", id));
 		progress.addTotal(m.size(), m.totalSize());
 		try (ZipOutputStream zip = new ZipOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(partial), 1 << 16))) {
 			for (ManifestEntry e : m.entries()) {

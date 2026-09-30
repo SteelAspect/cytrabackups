@@ -4,9 +4,11 @@ import dev.steelaspect.cytrabackups.core.config.ConfigSchema;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import dev.steelaspect.cytrabackups.net.BackupListPayload;
 import dev.steelaspect.cytrabackups.net.ConfigPayload;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
@@ -35,37 +37,41 @@ public final class GuiPreviewData {
 		CytraConfig cfg = new CytraConfig();
 		cfg.offsite.s3.secretKey = "hidden";
 		ClientState.config(new ConfigPayload(ConfigSchema.describe(cfg), List.of()));
-		ClientState.log(Component.literal("> /backup create before the dragon fight").withStyle(ChatFormatting.DARK_GRAY), false);
-		ClientState.log(Component.literal("Backup #14 created in 2.1s: 177 MiB, 97.4 MiB new (12/40 files unchanged). ").withStyle(ChatFormatting.GREEN)
-			.append(Component.literal("[Info]").withStyle(s -> s.withColor(ChatFormatting.AQUA).withBold(true)
-				.withClickEvent(new ClickEvent.RunCommand("/backup info 14")).withHoverEvent(new HoverEvent.ShowText(Component.literal("Show details"))))), false);
-		ClientState.log(Component.literal("Backup #14 — 2026-09-29 17:20 (just now)").withStyle(ChatFormatting.GRAY), false);
-		ClientState.log(Component.literal(" Size: 177 MiB in 40 files, 1,204 chunks · Dedup saved: 79.6 MiB").withStyle(ChatFormatting.GRAY), false);
+		ClientState.log(Component.literal("> /cbackup create before the dragon fight").withStyle(ChatFormatting.DARK_GRAY), false);
+		ClientState.log(Component.literal("Backup #14 created in 2.1s: 177 MB, 97 MB new. ").withStyle(ChatFormatting.GREEN)
+			.append(Component.literal("[Info]").withStyle(s -> s.withColor(ChatFormatting.GOLD)
+				.withClickEvent(new ClickEvent.RunCommand("/cbackup info 14")).withHoverEvent(new HoverEvent.ShowText(Component.literal("Show details"))))), false);
+		ClientState.log(Component.literal("Backup #14, 2026-09-29 17:20 (just now)"), false);
+		ClientState.log(Component.literal("177 MB in 40 files, 1204 chunks. Deduplication saved 80 MB.").withStyle(ChatFormatting.GRAY), false);
 	}
 
 	/** Sets the main screen's tab and selected backup (they are private statics). */
-	public static void select(String tab, int id) throws ReflectiveOperationException {
-		var t = BackupScreen.class.getDeclaredField("tab");
-		t.setAccessible(true);
-		t.set(null, Enum.valueOf(BackupScreen.Tab.class, tab));
-		var s = BackupScreen.class.getDeclaredField("selectedId");
-		s.setAccessible(true);
-		s.setInt(null, id);
+	public static void select(int tab, int id) {
+		setStatic(BackupScreen.class, "lastTab", tab);
+		setStatic(BackupScreen.class, "selectedId", id);
 	}
 
-	public static void settingsSection(String section) throws ReflectiveOperationException {
-		var f = SettingsScreen.class.getDeclaredField("section");
-		f.setAccessible(true);
-		f.set(null, section);
+	public static void settingsSection(String section) {
+		setStatic(SettingsScreen.class, "section", section);
 	}
 
-	public static net.minecraft.client.gui.screens.Screen settings(net.minecraft.client.gui.screens.Screen parent) {
+	private static void setStatic(Class<?> owner, String name, Object value) {
+		try {
+			Field f = owner.getDeclaredField(name);
+			f.setAccessible(true);
+			f.set(null, value);
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	public static Screen settings(Screen parent) {
 		return new SettingsScreen(parent);
 	}
 
-	public static net.minecraft.client.gui.screens.Screen form(net.minecraft.client.gui.screens.Screen parent) {
-		return new FormScreen(parent, "Comment for backup #14", "Leave empty to clear the comment.",
-			List.of(new FormScreen.Field("Comment", "before the dragon fight", "", 200)), "Save", v -> {
+	public static Screen form(Screen parent) {
+		return new FormScreen(parent, Component.translatable("cytrabackups.gui.comment.title", 14),
+			List.of(new FormScreen.Field("cytrabackups.gui.comment.field", "before the dragon fight", 200)), v -> {
 			});
 	}
 }

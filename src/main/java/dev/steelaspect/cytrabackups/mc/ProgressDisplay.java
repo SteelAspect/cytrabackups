@@ -1,6 +1,7 @@
 package dev.steelaspect.cytrabackups.mc;
 
 import dev.steelaspect.cytrabackups.core.Formatting;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import java.util.ArrayList;
@@ -16,11 +17,10 @@ final class ProgressDisplay {
 
 	static String line(BackupManager.Job job) {
 		Progress p = job.progress();
-		StringBuilder sb = new StringBuilder(job.name()).append(": ").append(p.phase());
-		if (p.total() > 0 || p.bytesTotal() > 0) sb.append(' ').append(Formatting.percent(p.fraction()));
-		if (p.bytesTotal() > 0) sb.append(" (").append(Formatting.bytes(p.bytesDone())).append(" / ").append(Formatting.bytes(p.bytesTotal())).append(')');
-		else if (p.total() > 0) sb.append(" (").append(p.done()).append(" / ").append(p.total()).append(')');
-		return sb.toString();
+		String progress = "";
+		if (p.bytesTotal() > 0) progress = Lang.get("cytrabackups.progress.bytes", Formatting.percent(p.fraction()), Formatting.bytes(p.bytesDone()), Formatting.bytes(p.bytesTotal()));
+		else if (p.total() > 0) progress = Lang.get("cytrabackups.progress.count", Formatting.percent(p.fraction()), p.done(), p.total());
+		return Lang.get(progress.isEmpty() ? "cytrabackups.progress.line" : "cytrabackups.progress.line_with", job.displayName(), p.phase(), progress);
 	}
 
 	private static boolean allowed(ServerPlayer player, CytraConfig cfg) {

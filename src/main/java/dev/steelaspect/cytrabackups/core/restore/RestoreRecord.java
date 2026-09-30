@@ -3,7 +3,7 @@ package dev.steelaspect.cytrabackups.core.restore;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Persistent record of an applied restore, used by {@code /backup rollback}. */
+/** Persistent record of an applied restore, used by {@code /cbackup rollback}. */
 public final class RestoreRecord {
 	public enum Kind {
 		FULL, CHUNKS, ROLLBACK

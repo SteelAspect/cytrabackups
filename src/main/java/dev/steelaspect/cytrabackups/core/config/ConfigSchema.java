@@ -2,10 +2,10 @@ package dev.steelaspect.cytrabackups.core.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import dev.steelaspect.cytrabackups.core.Lang;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,11 +28,27 @@ public final class ConfigSchema {
 		BOOL, INT, LONG, DOUBLE, STRING, CHOICE, LIST, SECRET
 	}
 
+	private static final String LEVELS = "permissions.defaultLevels.";
+
 	/** One setting as shown in the editor. For {@link Type#SECRET} the value is always empty and {@code set} says whether one is stored. */
-	public record Entry(String path, Type type, String value, String comment, List<String> choices, boolean set) {
+	public record Entry(String path, Type type, String value, List<String> choices, boolean set) {
 		public String section() {
 			int dot = path.indexOf('.');
 			return dot < 0 ? "general" : path.substring(0, dot);
+		}
+
+		/** Lang key of the help text. All permission levels share one key, with the node name as argument. */
+		public String helpKey() {
+			return path.startsWith(LEVELS) ? "cytrabackups.config.permissions.level" : "cytrabackups.config." + path;
+		}
+
+		public String nameKey() {
+			return helpKey() + ".name";
+		}
+
+		/** Argument for {@link #helpKey()} and {@link #nameKey()}: the permission node for permission levels, otherwise empty. */
+		public String keyArgument() {
+			return path.startsWith(LEVELS) ? path.substring(LEVELS.length()) : "";
 		}
 	}
 
@@ -44,7 +60,7 @@ public final class ConfigSchema {
 	}
 
 	/** A leaf setting with accessors on one config instance. */
-	record Leaf(String path, Class<?> javaType, Field field, Supplier<Object> get, Consumer<Object> set, String comment) {
+	record Leaf(String path, Class<?> javaType, Field field, Supplier<Object> get, Consumer<Object> set) {
 		Type type() {
 			if (field.isAnnotationPresent(Secret.class)) return Type.SECRET;
 			if (field.isAnnotationPresent(Choices.class) && javaType == String.class) return Type.CHOICE;
@@ -77,23 +93,17 @@ public final class ConfigSchema {
 			Class<?> t = f.getType();
 			Object value = read(f, obj);
 			if (t.isPrimitive() || t == String.class || t == List.class) {
-				out.add(new Leaf(path, t, f, () -> read(f, obj), v -> write(f, obj, v), comment(f)));
+				out.add(new Leaf(path, t, f, () -> read(f, obj), v -> write(f, obj, v)));
 			} else if (value instanceof Map<?, ?> raw) {
 				@SuppressWarnings("unchecked")
 				Map<String, Integer> map = (Map<String, Integer>) raw;
 				for (String key : new ArrayList<>(map.keySet())) {
-					out.add(new Leaf(path + "." + key, Integer.class, f, () -> map.get(key), v -> map.put(key, (Integer) v),
-						"Op level (0-4) needed for cytrabackups." + key + " when no permissions mod (e.g. LuckPerms) decides."));
+					out.add(new Leaf(path + "." + key, Integer.class, f, () -> map.get(key), v -> map.put(key, (Integer) v)));
 				}
 			} else if (value != null) {
 				collect(value, path + ".", out);
 			}
 		}
-	}
-
-	private static String comment(Field f) {
-		Comment c = f.getAnnotation(Comment.class);
-		return c == null ? "" : String.join(" ", Arrays.stream(c.value()).map(String::trim).toList());
 	}
 
 	private static Object read(Field f, Object obj) {
@@ -125,7 +135,7 @@ public final class ConfigSchema {
 				default -> String.valueOf(v);
 			};
 			boolean set = type == Type.SECRET && v != null && !v.toString().isEmpty();
-			out.add(new Entry(l.path(), type, text, l.comment(), l.choices(), set));
+			out.add(new Entry(l.path(), type, text, l.choices(), set));
 		}
 		return out;
 	}
@@ -168,14 +178,14 @@ public final class ConfigSchema {
 		for (Map.Entry<String, String> e : changes.entrySet()) {
 			Leaf leaf = byPath.get(e.getKey());
 			if (leaf == null) {
-				problems.add("unknown setting " + e.getKey());
+				problems.add(Lang.get("cytrabackups.config.problem.unknown", e.getKey()));
 				continue;
 			}
 			String text = e.getValue() == null ? "" : e.getValue();
 			try {
 				leaf.set().accept(parse(leaf, text));
 			} catch (IllegalArgumentException ex) {
-				problems.add(e.getKey() + ": " + ex.getMessage());
+				problems.add(Lang.get(ex.getMessage(), e.getKey(), text)); // the message is the lang key of the problem
 			}
 		}
 		if (problems.isEmpty()) {
@@ -191,20 +201,20 @@ public final class ConfigSchema {
 			case BOOL -> {
 				if (t.equalsIgnoreCase("true") || t.equalsIgnoreCase("on")) yield true;
 				if (t.equalsIgnoreCase("false") || t.equalsIgnoreCase("off")) yield false;
-				throw new IllegalArgumentException("'" + text + "' is not true or false");
+				throw new IllegalArgumentException("cytrabackups.config.problem.not_bool");
 			}
 			case INT -> {
 				try {
 					yield Integer.parseInt(t);
 				} catch (NumberFormatException ex) {
-					throw new IllegalArgumentException("'" + text + "' is not a whole number");
+					throw new IllegalArgumentException("cytrabackups.config.problem.not_whole");
 				}
 			}
 			case LONG -> {
 				try {
 					yield Long.parseLong(t);
 				} catch (NumberFormatException ex) {
-					throw new IllegalArgumentException("'" + text + "' is not a whole number");
+					throw new IllegalArgumentException("cytrabackups.config.problem.not_whole");
 				}
 			}
 			case DOUBLE -> {
@@ -213,7 +223,7 @@ public final class ConfigSchema {
 					if (!Double.isFinite(d)) throw new NumberFormatException();
 					yield d;
 				} catch (NumberFormatException ex) {
-					throw new IllegalArgumentException("'" + text + "' is not a number");
+					throw new IllegalArgumentException("cytrabackups.config.problem.not_number");
 				}
 			}
 			case LIST -> splitList(text);
@@ -245,12 +255,12 @@ public final class ConfigSchema {
 			switch (l.type()) {
 				case CHOICE -> {
 					if (v == null || !l.choices().contains(v.toString().toLowerCase(Locale.ROOT))) {
-						p.add(l.path() + " must be " + String.join(", ", l.choices().subList(0, l.choices().size() - 1)) + " or " + l.choices().getLast()
-							+ " (got \"" + v + "\")");
+						String choices = Lang.get("cytrabackups.list.or", String.join(", ", l.choices().subList(0, l.choices().size() - 1)), l.choices().getLast());
+						p.add(Lang.get("cytrabackups.config.problem.choice", l.path(), choices, v));
 					}
 				}
 				case INT, LONG, DOUBLE -> {
-					if (v instanceof Number n && n.doubleValue() < 0) p.add(l.path() + " must not be negative");
+					if (v instanceof Number n && n.doubleValue() < 0) p.add(Lang.get("cytrabackups.config.problem.negative", l.path()));
 				}
 				default -> {
 				}

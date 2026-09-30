@@ -5,6 +5,7 @@ import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Formatting;
 import dev.steelaspect.cytrabackups.core.Hash;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.BackupService;
@@ -82,8 +83,11 @@ public final class BackupManager {
 		return m;
 	}
 
-	/** A running job. {@code quiet} jobs (e.g. metadata edits) do not show a boss bar. */
+	/** A running job. {@code name} is a lang key. {@code quiet} jobs (e.g. metadata edits) do not show a boss bar. */
 	public record Job(String name, String requestedBy, Progress progress, CancelToken cancel, long startedAt, boolean quiet) {
+		public String displayName() {
+			return Lang.get(name);
+		}
 	}
 
 	private record Confirm(String requester, long expiresAt, String description, Runnable action) {
@@ -100,6 +104,8 @@ public final class BackupManager {
 			super(message);
 		}
 	}
+
+	static final String JOB_BACKUP = "cytrabackups.job.backup";
 
 	private final MinecraftServer server;
 	private final Path worldDir;
@@ -180,29 +186,27 @@ public final class BackupManager {
 		return config.timeZone.equals("system") ? ZoneId.systemDefault() : ZoneId.of(config.timeZone);
 	}
 
-	// ------------------------------------------------------------------ jobs
-
 	boolean runJob(String name, String requestedBy, Feedback fb, boolean quiet, JobBody body) {
 		if (countdown != null || stoppingForRestore) {
-			fb.error("A restore is in progress; no other jobs can start.");
+			fb.error("cytrabackups.error.restore_in_progress");
 			return false;
 		}
 		Job job = new Job(name, requestedBy, new Progress(), new CancelToken(), System.currentTimeMillis(), quiet);
 		if (!currentJob.compareAndSet(null, job)) {
 			Job running = currentJob.get();
-			fb.error("Busy: " + (running != null ? running.name() : "another job") + " is running. See /backup status or /backup cancel.");
+			fb.error("cytrabackups.error.busy", running != null ? running.displayName() : Lang.get("cytrabackups.job.other"));
 			return false;
 		}
 		jobExecutor.execute(() -> {
 			try {
 				body.run(job);
 			} catch (CancellationException e) {
-				fb.warn(name + " cancelled.");
+				fb.info("cytrabackups.job.cancelled", job.displayName());
 			} catch (Throwable t) {
 				String msg = rootMessage(t);
-				CytraBackups.LOGGER.error("CytraBackups: {} failed", name, t);
-				fb.error(name + " failed: " + msg);
-				if (name.equals("Backup")) notifier.backupFailure("Backup", msg);
+				CytraBackups.LOGGER.error("CytraBackups: {} failed", job.displayName(), t);
+				fb.error("cytrabackups.job.failed", job.displayName(), msg);
+				if (name.equals(JOB_BACKUP)) notifier.backupFailure(job.displayName(), msg);
 			} finally {
 				currentJob.compareAndSet(job, null);
 			}
@@ -249,11 +253,9 @@ public final class BackupManager {
 		});
 	}
 
-	// ------------------------------------------------------------------ backups
-
 	public boolean createBackup(Trigger trigger, String comment, String creator, Feedback fb) {
 		boolean automatic = trigger == Trigger.SCHEDULED || trigger == Trigger.PLAYER_LEAVE;
-		return runJob("Backup", creator, fb, false, job -> {
+		return runJob(JOB_BACKUP, creator, fb, false, job -> {
 			boolean ok = false;
 			try {
 				doBackup(job, trigger, comment, creator, fb, automatic);
@@ -278,8 +280,7 @@ public final class BackupManager {
 		long free = FileUtil.usableSpace(s.storage);
 		long reserve = config.minFreeSpaceMiB * 1024L * 1024L;
 		if (free - bytesToWrite < reserve) {
-			throw new NotEnoughSpaceException("Not enough disk space: the backup may need up to " + Formatting.bytes(bytesToWrite)
-				+ " and " + Formatting.bytes(reserve) + " must stay free, but only " + Formatting.bytes(free) + " is available. Nothing was written.");
+			throw new NotEnoughSpaceException(Lang.get("cytrabackups.error.disk_space", Formatting.bytes(free), Formatting.bytes(bytesToWrite), Formatting.bytes(reserve)));
 		}
 	}
 
@@ -287,7 +288,7 @@ public final class BackupManager {
 		Services s = services;
 		CytraConfig cfg = config;
 		checkSpace(s, 0);
-		job.progress().phase(cfg.flushOnSave ? "Saving world (save-all flush)" : "Saving world");
+		job.progress().phase(Lang.get("cytrabackups.phase.saving"));
 		Map<ServerLevel, Boolean> previous = null;
 		BackupService.Outcome out;
 		try {
@@ -316,17 +317,17 @@ public final class BackupManager {
 		st.playersSeenSinceBackup = !server.getPlayerList().getPlayers().isEmpty();
 		saveState();
 		if (out.skippedUnchanged()) {
-			fb.info("Nothing changed since the last backup; automatic backup skipped.");
+			fb.info("cytrabackups.backup.skipped");
 			return null;
 		}
 		BackupMeta m = out.meta();
-		MutableComponent msg = Msg.success("Backup #" + m.id + " created in " + Formatting.duration(m.durationMillis) + ": "
-			+ Formatting.bytes(m.totalSize) + ", " + Formatting.bytes(m.newStoredBytes) + " new (" + m.reusedFiles + "/" + m.fileCount + " files unchanged). ");
-		msg.append(Msg.run("Info", "/backup info " + m.id, "Show details", ChatFormatting.AQUA));
-		if (!out.scan().warnings.isEmpty()) msg.append(Msg.text(" " + out.scan().warnings.size() + " warning(s) in the server log.", ChatFormatting.YELLOW));
+		MutableComponent msg = Msg.success("cytrabackups.backup.created", m.id, Formatting.bytes(m.totalSize), Formatting.bytes(m.newStoredBytes),
+			Formatting.duration(m.durationMillis));
+		msg.append(" ").append(Msg.button("cytrabackups.button.info", Msg.command("info", m.id), "cytrabackups.hover.info", m.id));
+		if (!out.scan().warnings.isEmpty()) msg.append(" ").append(Msg.detail("cytrabackups.backup.warnings", out.scan().warnings.size()));
 		fb.send(msg, false);
 		if (automatic && cfg.progress.announceScheduled) {
-			server.execute(() -> server.getPlayerList().broadcastSystemMessage(Msg.info("Automatic backup #" + m.id + " complete."), false));
+			server.execute(() -> server.getPlayerList().broadcastSystemMessage(Msg.info("cytrabackups.backup.announce", m.id), false));
 		}
 		notifier.backupSuccess(m);
 		if (cfg.offsite.enabled) {
@@ -337,8 +338,6 @@ public final class BackupManager {
 		return m;
 	}
 
-	// ------------------------------------------------------------------ confirmations
-
 	/** Sends a clickable confirmation prompt; the action runs when the same source confirms in time. */
 	public void prompt(CommandSourceStack src, String description, String details, Runnable action) {
 		byte[] b = new byte[4];
@@ -346,59 +345,57 @@ public final class BackupManager {
 		String token = Hash.compute(b).hex().substring(0, 8);
 		int timeout = config.restore.confirmTimeoutSeconds;
 		confirmations.put(token, new Confirm(src.getTextName(), System.currentTimeMillis() + timeout * 1000L, description, action));
-		MutableComponent msg = Msg.warn(description + "? ").append(Msg.text(details + " ", ChatFormatting.GRAY))
-			.append(Msg.run("Confirm", "/backup confirm " + token, "Click to confirm (expires in " + timeout + "s)", ChatFormatting.RED))
-			.append(" ")
-			.append(Msg.run("Cancel", "/backup deny " + token, "Click to cancel", ChatFormatting.GRAY));
-		if (!src.isPlayer()) msg.append(Msg.text(" (type: backup confirm " + token + ")", ChatFormatting.GRAY));
+		MutableComponent msg = Msg.info("cytrabackups.confirm.question", description);
 		src.sendSuccess(() -> msg, false);
-		CytraNetworking.sendPrompt(src, token, description + "?", details, timeout); // dialog when started from the GUI
+		MutableComponent answer = Msg.detail("cytrabackups.confirm.details", details).append(" ")
+			.append(Msg.dangerButton("cytrabackups.button.confirm", Msg.command("confirm", token), "cytrabackups.hover.confirm", timeout)).append(" ")
+			.append(Msg.button("cytrabackups.button.cancel", Msg.command("deny", token), "cytrabackups.hover.cancel"));
+		if (!src.isPlayer()) answer.append(" ").append(Msg.detail("cytrabackups.confirm.console", Msg.command("confirm", token).substring(1)));
+		src.sendSuccess(() -> answer, false);
+		CytraNetworking.sendPrompt(src, token, Lang.get("cytrabackups.confirm.question", description), details, timeout);
 	}
 
 	public void confirm(String token, CommandSourceStack src, boolean accept) {
 		Confirm c = confirmations.remove(token);
 		if (c == null) {
-			src.sendFailure(Msg.error("Unknown or already used confirmation."));
+			src.sendFailure(Msg.error("cytrabackups.error.confirm_unknown"));
 			return;
 		}
 		if (!c.requester.equals(src.getTextName())) {
 			confirmations.put(token, c);
-			src.sendFailure(Msg.error("This confirmation belongs to " + c.requester + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.confirm_other", c.requester));
 			return;
 		}
 		if (System.currentTimeMillis() > c.expiresAt) {
-			src.sendFailure(Msg.error("Confirmation expired. Run the command again."));
+			src.sendFailure(Msg.error("cytrabackups.error.confirm_expired"));
 			return;
 		}
 		if (!accept) {
-			src.sendSuccess(() -> Msg.info("Cancelled: " + c.description + "."), false);
+			src.sendSuccess(() -> Msg.info("cytrabackups.confirm.cancelled"), false);
 			return;
 		}
 		c.action.run();
 	}
 
-	// ------------------------------------------------------------------ restores
-
 	private String describe(BackupMeta m) {
-		return "#" + m.id + " (" + Formatting.dateTime(m.createdAt, zone()) + ", " + m.trigger.displayName()
-			+ (m.comment.isBlank() ? "" : ", \"" + m.comment + "\"") + ")";
+		String when = Formatting.dateTimeShort(m.createdAt, zone());
+		return m.comment.isBlank() ? Lang.get("cytrabackups.backup.describe", m.id, when) : Lang.get("cytrabackups.backup.describe_comment", m.id, when, m.comment);
 	}
 
 	public void requestFullRestore(int id, CommandSourceStack src) {
 		Optional<BackupMeta> meta = services.repo.get(id);
 		if (meta.isEmpty()) {
-			src.sendFailure(Msg.error("No backup #" + id + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return;
 		}
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
-		prompt(src, "Restore the whole world to backup " + describe(meta.get()),
-			"A pre-restore backup is taken automatically; everyone is kicked after a " + config.restore.countdownSeconds
-				+ "s countdown and the server " + (config.restore.applyMode.equals("startup") ? "restarts to apply it." : "stops and applies it."),
+		prompt(src, Lang.get("cytrabackups.restore.full.question", describe(meta.get())),
+			Lang.get(config.restore.applyMode.equals("startup") ? "cytrabackups.restore.full.details_restart" : "cytrabackups.restore.full.details_stop",
+				config.restore.countdownSeconds),
 			() -> startFullRestore(id, who, fb));
 	}
 
-	/** Also used by the GUI after its own confirmation dialog. */
 	public void startFullRestore(int id, String who, Feedback fb) {
 		PendingOperation op = new PendingOperation();
 		op.type = PendingOperation.Type.FULL_RESTORE;
@@ -406,24 +403,24 @@ public final class BackupManager {
 		op.worldDir = worldDir.toString();
 		op.requestedBy = who;
 		op.requestedAt = System.currentTimeMillis();
-		beginStopCountdown(op, "Restoring backup #" + id, fb);
+		beginStopCountdown(op, Lang.get("cytrabackups.countdown.restore", id), fb);
 	}
 
 	private void beginStopCountdown(PendingOperation op, String label, Feedback fb) {
 		server.execute(() -> {
 			if (countdown != null || stoppingForRestore) {
-				fb.error("A restore countdown is already running.");
+				fb.error("cytrabackups.error.countdown_running");
 				return;
 			}
 			Job job = currentJob.get();
 			if (job != null) {
-				fb.error(job.name() + " is running. Wait for it or use /backup cancel, then try again.");
+				fb.error("cytrabackups.error.busy", job.displayName());
 				return;
 			}
 			countdown = new Countdown(config.restore.countdownSeconds, label, () -> finishStop(op, fb));
-			fb.success(label + ": countdown started (" + config.restore.countdownSeconds + "s). Use /backup cancel to abort.");
-			notifier.restore("Restore scheduled", op.describe() + " requested by " + op.requestedBy + ". The server stops in "
-				+ config.restore.countdownSeconds + "s.", false);
+			fb.info("cytrabackups.countdown.started", label, config.restore.countdownSeconds);
+			notifier.restore(Lang.get("cytrabackups.discord.restore_scheduled"),
+				Lang.get("cytrabackups.discord.restore_scheduled.text", op.describe(), op.requestedBy, config.restore.countdownSeconds), false);
 		});
 	}
 
@@ -436,7 +433,7 @@ public final class BackupManager {
 			}
 			PendingOperationRunner.writePending(services.storage, op);
 		} catch (IOException e) {
-			fb.error("Could not queue the restore: " + e.getMessage() + ". The server keeps running.");
+			fb.error("cytrabackups.error.queue_failed", e.getMessage());
 			return;
 		}
 		stoppingForRestore = true;
@@ -451,27 +448,27 @@ public final class BackupManager {
 	public void requestChunkRestore(int id, ServerLevel level, ChunkSelection sel, CommandSourceStack src) {
 		Optional<BackupMeta> meta = services.repo.get(id);
 		if (meta.isEmpty()) {
-			src.sendFailure(Msg.error("No backup #" + id + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return;
 		}
 		long n = sel.chunkCount();
 		if (n > config.restore.maxChunks) {
-			src.sendFailure(Msg.error("Selection has " + n + " chunks; the limit is " + config.restore.maxChunks + " (restore.maxChunks)."));
+			src.sendFailure(Msg.error("cytrabackups.error.too_many_chunks", n, config.restore.maxChunks));
 			return;
 		}
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
-		prompt(src, "Restore " + n + " chunk(s) (" + sel.describe() + ") in " + level.dimension().identifier() + " from backup " + describe(meta.get()),
-			(sel.boxes().size() == 1 ? blockRange(sel.boxes().getFirst()) + ". " : "") + "Terrain, entities and POI are restored; the area is backed up first.",
+		String details = Lang.get("cytrabackups.restore.area.details");
+		if (sel.boxes().size() == 1) {
+			ChunkSelection.Box b = sel.boxes().getFirst();
+			details = Lang.get("cytrabackups.restore.area.blocks", b.minX() * 16, b.maxX() * 16 + 15, b.minZ() * 16, b.maxZ() * 16 + 15) + " " + details;
+		}
+		prompt(src, Lang.get(Lang.plural("cytrabackups.restore.area.question", n), n, level.dimension().identifier(), describe(meta.get())), details,
 			() -> startChunkRestore(id, level, sel, who, fb));
 	}
 
-	private static String blockRange(ChunkSelection.Box b) {
-		return "Blocks x " + b.minX() * 16 + ".." + (b.maxX() * 16 + 15) + ", z " + b.minZ() * 16 + ".." + (b.maxZ() * 16 + 15);
-	}
-
 	public void startChunkRestore(int id, ServerLevel level, ChunkSelection sel, String who, Feedback fb) {
-		runJob("Chunk restore", who, fb, false, job -> doChunkRestore(job, id, level, sel, who, fb));
+		runJob("cytrabackups.job.area_restore", who, fb, false, job -> doChunkRestore(job, id, level, sel, who, fb));
 	}
 
 	String dimensionFolder(ServerLevel level) {
@@ -486,59 +483,59 @@ public final class BackupManager {
 		String dimFolder = dimensionFolder(level);
 		Manifest manifest = s.repo.loadManifest(id);
 		if (!cfg.restore.livePartialRestore) {
-			queueChunkRestore(id, dimId, dimFolder, sel, who, "live partial restore is disabled in the config", fb);
+			queueChunkRestore(id, dimId, dimFolder, sel, who, Lang.get("cytrabackups.restore.live_disabled"), fb);
 			return;
 		}
 		int viewDistance = server.getPlayerList().getViewDistance();
-		job.progress().phase("Checking the area");
+		job.progress().phase(Lang.get("cytrabackups.phase.check_area"));
 		LiveChunkRestore.Safety safety = await(server.submit(() -> LiveChunkRestore.quickCheck(level, sel, viewDistance)), job);
 		if (!safety.safe()) {
 			queueChunkRestore(id, dimId, dimFolder, sel, who, safety.reason(), fb);
 			return;
 		}
-		job.progress().phase("Waiting for chunks to unload");
+		job.progress().phase(Lang.get("cytrabackups.phase.wait_unload"));
 		long deadline = System.currentTimeMillis() + cfg.restore.liveUnloadTimeoutSeconds * 1000L;
 		while (true) {
 			int loaded = await(server.submit(() -> LiveChunkRestore.countLoaded(level, sel)), job);
 			if (loaded == 0) break;
-			job.progress().detail(loaded + " chunk(s) still loaded");
+			job.progress().detail(Lang.get("cytrabackups.phase.detail.loaded", loaded));
 			if (System.currentTimeMillis() > deadline) {
 				LiveChunkRestore.Safety again = await(server.submit(() -> LiveChunkRestore.quickCheck(level, sel, viewDistance)), job);
-				queueChunkRestore(id, dimId, dimFolder, sel, who, loaded + " chunk(s) stayed loaded for " + cfg.restore.liveUnloadTimeoutSeconds + "s"
-					+ (again.safe() ? " (held by tickets such as portals, ender pearls or other mods)" : ": " + again.reason()), fb);
+				queueChunkRestore(id, dimId, dimFolder, sel, who, again.safe()
+					? Lang.get("cytrabackups.restore.stayed_loaded", loaded, cfg.restore.liveUnloadTimeoutSeconds) : again.reason(), fb);
 				return;
 			}
 			Thread.sleep(250);
 		}
-		job.progress().phase("Flushing chunk IO");
+		job.progress().phase(Lang.get("cytrabackups.phase.flush"));
 		await(await(server.submit(() -> LiveChunkRestore.flush(level)), job), job);
 
-		job.progress().phase("Backing up the area first");
+		job.progress().phase(Lang.get("cytrabackups.phase.backup_area"));
 		BackupService.Request pre = new BackupService.Request();
 		pre.worldDir = worldDir;
 		pre.levelName = levelName;
 		pre.trigger = Trigger.PRE_RESTORE;
-		pre.comment = "Automatic backup of the area before chunk restore from #" + id;
+		pre.comment = Lang.get("cytrabackups.restore.comment.area", id);
 		pre.creator = who;
 		pre.filter = s.filter();
 		pre.excludedDirs = s.excludedDirs(worldDir);
 		java.util.Set<String> affected = PendingOperationRunner.affectedPaths(dimFolder, sel);
 		pre.only = affected::contains;
-		pre.scope = sel.describe() + " in " + dimId;
+		pre.scope = Lang.get("cytrabackups.restore.scope", sel.describe(), dimId);
 		pre.restoreTarget = id;
 		pre.progress = job.progress();
 		pre.cancel = job.cancel();
 		pre.beforeWrite = bytes -> checkSpace(s, bytes);
 		BackupMeta preMeta = s.backups.create(pre).meta();
 
-		job.progress().phase("Reading chunks from backup #" + id);
+		job.progress().phase(Lang.get("cytrabackups.phase.read_chunks", id));
 		List<LiveChunkRestore.Write> writes = LiveChunkRestore.prepare(manifest, s.blobs, worldDir, dimFolder, sel);
-		job.progress().phase("Writing chunks");
+		job.progress().phase(Lang.get("cytrabackups.phase.write_chunks"));
 		String problem = await(server.submit(() -> {
 			LiveChunkRestore.Safety q = LiveChunkRestore.quickCheck(level, sel, viewDistance);
 			if (!q.safe()) return q.reason();
 			int still = LiveChunkRestore.countLoaded(level, sel);
-			if (still > 0) return still + " chunk(s) were loaded again while the restore was being prepared";
+			if (still > 0) return Lang.get("cytrabackups.restore.reloaded", still);
 			LiveChunkRestore.apply(level, writes);
 			return null;
 		}), job);
@@ -548,19 +545,14 @@ public final class BackupManager {
 		}
 		await(await(server.submit(() -> LiveChunkRestore.flush(level)), job), job);
 		long chunks = writes.stream().filter(w -> w.kind() == LiveChunkRestore.Kind.REGION).count();
-		String text = "Restored " + chunks + " chunk(s) of " + sel.describe() + " in " + dimId + " from backup #" + id + " LIVE ("
-			+ writes.size() + " region/entity/POI records written). Why live: no player close enough to keep the area in memory, nothing force-loaded, "
-			+ "and every selected chunk was fully unloaded, so the data was written through Minecraft's own region IO and cached "
-			+ "entity/POI data was refreshed. Pre-restore backup of the area: #" + preMeta.id + ".";
-		fb.success(text);
-		notifier.restore("Chunks restored live", text, false);
+		fb.success(Lang.plural("cytrabackups.restore.area.done", chunks), chunks, dimId, id, preMeta.id);
+		notifier.restore(Lang.get("cytrabackups.discord.area_restored"), Lang.get(Lang.plural("cytrabackups.restore.area.done", chunks), chunks, dimId, id, preMeta.id), false);
 	}
 
 	private void queueChunkRestore(int id, String dimId, String dimFolder, ChunkSelection sel, String who, String reason, Feedback fb) throws IOException {
 		PendingOperation existing = PendingOperationRunner.readPending(services.storage);
 		if (existing != null) {
-			fb.error("Live restore not possible (" + reason + "), and another operation is already queued: " + existing.describe()
-				+ ". Cancel it with /backup pending cancel first.");
+			fb.error("cytrabackups.error.already_queued", reason, existing.describe());
 			return;
 		}
 		PendingOperation op = new PendingOperation();
@@ -575,13 +567,11 @@ public final class BackupManager {
 		op.reason = reason;
 		PendingOperationRunner.writePending(services.storage, op);
 		boolean startup = config.restore.applyMode.equals("startup");
-		String when = server.isDedicatedServer()
-			? (startup ? "on the next server start, before the world loads" : "when the server next stops")
-			: (startup ? "the next time this world is opened, before it loads" : "when you leave this world");
-		MutableComponent msg = Msg.warn("Live restore not safe: " + reason + ". The chunk restore was QUEUED and will be applied " + when
-			+ " (with a pre-restore backup of the area). ");
-		msg.append(Msg.run("Restart now", "/backup pending apply", "Countdown, kick everyone and stop the server to apply it", ChatFormatting.RED));
-		fb.send(msg, false);
+		String when = Lang.get(server.isDedicatedServer()
+			? (startup ? "cytrabackups.restore.when.next_start" : "cytrabackups.restore.when.next_stop")
+			: (startup ? "cytrabackups.restore.when.next_open" : "cytrabackups.restore.when.leave"));
+		fb.send(Msg.info("cytrabackups.restore.queued", reason, when).append(" ")
+			.append(Msg.dangerButton("cytrabackups.button.apply", Msg.command("pending", "apply"), "cytrabackups.hover.apply")), false);
 	}
 
 	public void requestRollback(CommandSourceStack src) {
@@ -591,7 +581,7 @@ public final class BackupManager {
 			try {
 				rec = services.restore.latestUndoable();
 			} catch (IOException e) {
-				server.execute(() -> src.sendFailure(Msg.error("Cannot read restore history: " + e.getMessage())));
+				server.execute(() -> src.sendFailure(Msg.error("cytrabackups.error.history", e.getMessage())));
 				return;
 			}
 			server.execute(() -> promptRollback(src, rec));
@@ -600,14 +590,14 @@ public final class BackupManager {
 
 	private void promptRollback(CommandSourceStack src, Optional<RestoreRecord> rec) {
 		if (rec.isEmpty()) {
-			src.sendFailure(Msg.error("There is no restore to roll back (recycle bins are kept for the last " + config.restore.recycleBinKeep + " restores)."));
+			src.sendFailure(Msg.error("cytrabackups.error.no_rollback", config.restore.recycleBinKeep));
 			return;
 		}
 		RestoreRecord r = rec.get();
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
-		prompt(src, "Roll back the last restore (" + r.description + ", applied " + Formatting.dateTime(r.appliedAt, zone()) + ")",
-			"Files replaced by that restore are moved back from the recycle bin; current files go to a new recycle bin. Requires a restart.",
+		prompt(src, Lang.get("cytrabackups.rollback.question", r.description, Formatting.dateTimeShort(r.appliedAt, zone())),
+			Lang.get("cytrabackups.rollback.details"),
 			() -> {
 				PendingOperation op = new PendingOperation();
 				op.type = PendingOperation.Type.ROLLBACK;
@@ -615,7 +605,7 @@ public final class BackupManager {
 				op.worldDir = worldDir.toString();
 				op.requestedBy = who;
 				op.requestedAt = System.currentTimeMillis();
-				beginStopCountdown(op, "Rolling back restore " + r.restoreId, fb);
+				beginStopCountdown(op, Lang.get("cytrabackups.countdown.rollback"), fb);
 			});
 	}
 
@@ -625,7 +615,7 @@ public final class BackupManager {
 			try {
 				PendingOperation op = PendingOperationRunner.readPending(services.storage);
 				server.execute(() -> {
-					if (op == null) src.sendFailure(Msg.error("Nothing is queued."));
+					if (op == null) src.sendFailure(Msg.error("cytrabackups.error.nothing_queued"));
 					else onServer.accept(op);
 				});
 			} catch (IOException e) {
@@ -636,11 +626,11 @@ public final class BackupManager {
 
 	public void pendingInfo(CommandSourceStack src) {
 		withPending(src, op -> {
-			MutableComponent msg = Msg.info("Queued: " + op.describe() + " (by " + op.requestedBy + ", " + Formatting.ago(op.requestedAt, System.currentTimeMillis())
-				+ (op.reason.isBlank() ? "" : "; queued because " + op.reason) + "). ");
-			msg.append(Msg.run("Apply now", "/backup pending apply", "Countdown and stop the server", ChatFormatting.RED)).append(" ")
-				.append(Msg.run("Cancel", "/backup pending cancel", "Remove the queued operation", ChatFormatting.GRAY));
-			src.sendSuccess(() -> msg, false);
+			src.sendSuccess(() -> Msg.info("cytrabackups.pending.info", op.describe(), op.requestedBy, Msg.ago(op.requestedAt, zone())), false);
+			MutableComponent line = op.reason.isBlank() ? Component.empty() : Msg.detail("cytrabackups.pending.reason", op.reason).append(" ");
+			line.append(Msg.dangerButton("cytrabackups.button.apply", Msg.command("pending", "apply"), "cytrabackups.hover.apply")).append(" ")
+				.append(Msg.button("cytrabackups.button.cancel", Msg.command("pending", "cancel"), "cytrabackups.hover.pending_cancel"));
+			src.sendSuccess(() -> line, false);
 		});
 	}
 
@@ -648,7 +638,7 @@ public final class BackupManager {
 		withPending(src, op -> async(() -> {
 			try {
 				PendingOperationRunner.clearPending(services.storage);
-				server.execute(() -> src.sendSuccess(() -> Msg.success("Removed queued " + op.describe() + "."), true));
+				server.execute(() -> src.sendSuccess(() -> Msg.success("cytrabackups.pending.cancelled", op.describe()), true));
 			} catch (IOException e) {
 				server.execute(() -> src.sendFailure(Msg.error(e.getMessage())));
 			}
@@ -658,50 +648,48 @@ public final class BackupManager {
 	public void pendingApply(CommandSourceStack src) {
 		withPending(src, op -> {
 			Feedback fb = Feedback.of(src).and(Feedback.console());
-			prompt(src, "Stop the server now to apply " + op.describe(), "Everyone is kicked after the countdown.",
-				() -> beginStopCountdown(op, "Applying " + op.describe(), fb));
+			prompt(src, Lang.get("cytrabackups.pending.apply_question", op.describe()), Lang.get("cytrabackups.pending.apply_details"),
+				() -> beginStopCountdown(op, Lang.get("cytrabackups.countdown.apply", op.describe()), fb));
 		});
 	}
-
-	// ------------------------------------------------------------------ maintenance
 
 	public void requestDelete(int id, CommandSourceStack src) {
 		Optional<BackupMeta> meta = services.repo.get(id);
 		if (meta.isEmpty()) {
-			src.sendFailure(Msg.error("No backup #" + id + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return;
 		}
 		if (meta.get().pinned) {
-			src.sendFailure(Msg.error("Backup #" + id + " is pinned. Unpin it first with /backup unpin " + id + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.pinned", id));
 			return;
 		}
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src);
-		prompt(src, "Delete backup " + describe(meta.get()), "This cannot be undone.", () -> delete(id, who, fb));
+		prompt(src, Lang.get("cytrabackups.delete.question", describe(meta.get())), Lang.get("cytrabackups.delete.details"), () -> delete(id, who, fb));
 	}
 
 	public void delete(int id, String who, Feedback fb) {
-		runJob("Delete", who, fb, true, job -> {
-			BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException("No backup #" + id));
-			if (m.pinned) throw new IOException("Backup #" + id + " is pinned");
+		runJob("cytrabackups.job.delete", who, fb, true, job -> {
+			BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException(Lang.get("cytrabackups.error.no_backup", id)));
+			if (m.pinned) throw new IOException(Lang.get("cytrabackups.error.pinned", id));
 			services.repo.delete(id);
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) {
 				offsite.enqueueDeleteBackup(id);
 				kickOffsite();
 			}
-			fb.success("Deleted backup #" + id + ". Unreferenced data is freed by the next prune or /backup gc.");
+			fb.success("cytrabackups.delete.done", id);
 		});
 	}
 
 	public void setPinned(int id, boolean pinned, Feedback fb) {
 		async(() -> {
 			try {
-				BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException("No backup #" + id)).copy();
+				BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException(Lang.get("cytrabackups.error.no_backup", id))).copy();
 				m.pinned = pinned;
 				services.repo.updateMeta(m);
-				fb.success((pinned ? "Pinned" : "Unpinned") + " backup #" + id + (pinned ? " (it will never be pruned)." : "."));
+				fb.success(pinned ? "cytrabackups.pin.done" : "cytrabackups.unpin.done", id);
 			} catch (IOException e) {
-				fb.error(e.getMessage());
+				fb.error("cytrabackups.error.plain", e.getMessage());
 			}
 		});
 	}
@@ -709,12 +697,12 @@ public final class BackupManager {
 	public void setComment(int id, String comment, Feedback fb) {
 		async(() -> {
 			try {
-				BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException("No backup #" + id)).copy();
+				BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException(Lang.get("cytrabackups.error.no_backup", id))).copy();
 				m.comment = comment;
 				services.repo.updateMeta(m);
-				fb.success(comment.isBlank() ? "Cleared the comment of backup #" + id + "." : "Updated the comment of backup #" + id + ".");
+				fb.success(comment.isBlank() ? "cytrabackups.comment.cleared" : "cytrabackups.comment.done", id);
 			} catch (IOException e) {
-				fb.error(e.getMessage());
+				fb.error("cytrabackups.error.plain", e.getMessage());
 			}
 		});
 	}
@@ -726,12 +714,12 @@ public final class BackupManager {
 	}
 
 	public boolean prune(boolean dryRun, String who, Feedback fb) {
-		return runJob(dryRun ? "Prune (dry run)" : "Prune", who, fb, dryRun, job -> doPrune(job, dryRun, fb));
+		return runJob(dryRun ? "cytrabackups.job.prune_dry" : "cytrabackups.job.prune", who, fb, dryRun, job -> doPrune(job, dryRun, fb));
 	}
 
 	private void doPrune(Job job, boolean dryRun, Feedback fb) throws Exception {
 		Services s = services;
-		job.progress().phase("Planning");
+		job.progress().phase(Lang.get("cytrabackups.phase.plan_prune"));
 		PrunePolicy policy = policy();
 		Pruner pruner = new Pruner(policy, zone());
 		List<Pruner.Decision> plan = pruner.plan(s.repo.list(), System.currentTimeMillis(), meta -> {
@@ -742,22 +730,18 @@ public final class BackupManager {
 		List<Pruner.Decision> deletions = plan.stream().filter(d -> !d.keep()).toList();
 		if (dryRun) {
 			if (deletions.isEmpty()) {
-				fb.info("Dry run: nothing would be deleted (" + plan.size() + " backups kept).");
+				fb.info("cytrabackups.prune.preview_none", plan.size());
 				return;
 			}
-			fb.warn("Dry run: " + deletions.size() + " of " + plan.size() + " backup(s) would be deleted:");
-			int shown = 0;
-			for (Pruner.Decision d : deletions) {
-				if (shown++ >= 25) {
-					fb.info("... and " + (deletions.size() - 25) + " more.");
-					break;
-				}
-				fb.info(" #" + d.backup().id + " " + Formatting.dateTime(d.backup().createdAt, zone()) + " " + d.backup().trigger.displayName()
-					+ " — " + String.join(", ", d.reasons()));
+			fb.info("cytrabackups.prune.preview", deletions.size(), plan.size());
+			for (Pruner.Decision d : deletions.subList(0, Math.min(25, deletions.size()))) {
+				fb.send(Msg.detail("cytrabackups.prune.preview_line", d.backup().id, Formatting.dateTimeShort(d.backup().createdAt, zone()),
+					d.backup().trigger.displayName(), String.join(", ", d.reasons())), false);
 			}
+			if (deletions.size() > 25) fb.send(Msg.detail("cytrabackups.more", deletions.size() - 25), false);
 			return;
 		}
-		job.progress().phase("Deleting backups");
+		job.progress().phase(Lang.get("cytrabackups.phase.prune_delete"));
 		job.progress().addTotal(deletions.size(), 0);
 		for (Pruner.Decision d : deletions) {
 			job.cancel().check();
@@ -775,57 +759,56 @@ public final class BackupManager {
 		s.repo.state().lastPrune = System.currentTimeMillis();
 		saveState();
 		if (!deletions.isEmpty()) {
-			fb.success("Pruned " + deletions.size() + " backup(s), freed " + Formatting.bytes(freed) + ".");
+			fb.success("cytrabackups.prune.done", deletions.size(), Formatting.bytes(freed));
 			notifier.prune(deletions.size(), freed);
 			if (config.offsite.enabled) kickOffsite();
 		} else {
-			fb.info("Prune: nothing to delete.");
+			fb.info("cytrabackups.prune.none");
 		}
 	}
 
 	public boolean garbageCollect(String who, Feedback fb) {
-		return runJob("Garbage collection", who, fb, false, job -> {
+		return runJob("cytrabackups.job.gc", who, fb, false, job -> {
 			GarbageCollector.Result gc = GarbageCollector.collect(services.repo, job.progress(), job.cancel());
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) {
 				offsite.enqueueDeleteBlobs(gc.deleted());
 				kickOffsite();
 			}
-			fb.success("Garbage collection: removed " + gc.deletedBlobs() + " of " + gc.scannedBlobs() + " blobs, freed "
-				+ Formatting.bytes(gc.freedBytes()) + "; store now " + Formatting.bytes(gc.liveBytes()) + ".");
+			fb.success("cytrabackups.gc.done", Formatting.bytes(gc.freedBytes()), Formatting.bytes(gc.liveBytes()));
 		});
 	}
 
 	public boolean verify(int id, String who, Feedback fb) {
-		return runJob("Verify", who, fb, false, job -> {
+		return runJob("cytrabackups.job.verify", who, fb, false, job -> {
 			Verifier.Result r = Verifier.verify(services.repo, id, services.workers, job.progress(), job.cancel());
 			if (r.ok()) {
-				fb.success("Backup #" + id + " is intact: " + r.blobsChecked() + " blobs (" + Formatting.bytes(r.bytesChecked()) + ") verified against their SHA-256.");
+				fb.success("cytrabackups.verify.ok", id, Formatting.bytes(r.bytesChecked()));
 			} else {
-				fb.error("Backup #" + id + " has " + r.problems().size() + " problem(s):");
-				r.problems().stream().limit(10).forEach(p -> fb.error(" - " + p));
-				notifier.backupFailure("Verification of #" + id, String.join("\n", r.problems().subList(0, Math.min(10, r.problems().size()))));
+				fb.error("cytrabackups.verify.failed", id, r.problems().size());
+				r.problems().stream().limit(10).forEach(p -> fb.send(Msg.detail("cytrabackups.verify.problem", p), true));
+				notifier.backupFailure(Lang.get("cytrabackups.verify.discord", id), String.join("\n", r.problems().subList(0, Math.min(10, r.problems().size()))));
 			}
 		});
 	}
 
 	public boolean export(int id, String who, Feedback fb) {
-		return runJob("Export", who, fb, false, job -> {
+		return runJob("cytrabackups.job.export", who, fb, false, job -> {
 			Path out = ZipExporter.export(services.repo, id, services.storage.resolve("exports"), job.progress(), job.cancel());
 			Path game = ModEnv.gameDir();
 			String shown = out.startsWith(game) ? FileUtil.relative(game, out) : out.toString();
-			fb.success("Exported backup #" + id + " to " + shown + " (" + Formatting.bytes(Files.size(out)) + "). Download it with your host's file manager.");
+			fb.success("cytrabackups.export.done", id, shown, Formatting.bytes(Files.size(out)));
 		});
 	}
 
 	public boolean importWorld(String path, String comment, String who, Feedback fb) {
-		return runJob("Import", who, fb, false, job -> {
+		return runJob("cytrabackups.job.import", who, fb, false, job -> {
 			Path game = ModEnv.gameDir();
 			Path source = game.resolve(path).toAbsolutePath().normalize();
-			if (!source.startsWith(game)) throw new IOException("Import path must be inside the server folder");
-			if (source.startsWith(worldDir)) throw new IOException("Cannot import the live world folder; use /backup create");
+			if (!source.startsWith(game)) throw new IOException(Lang.get("cytrabackups.error.import_outside"));
+			if (source.startsWith(worldDir)) throw new IOException(Lang.get("cytrabackups.error.import_live"));
 			BackupService.Outcome out = WorldImporter.importWorld(services.backups, source, services.storage.resolve("tmp"), levelName, who, comment,
 				services.filter(), job.progress(), job.cancel());
-			fb.success("Imported " + path + " as backup #" + out.meta().id + " (" + Formatting.bytes(out.meta().totalSize) + ").");
+			fb.success("cytrabackups.import.done", path, out.meta().id, Formatting.bytes(out.meta().totalSize));
 			if (config.offsite.enabled) {
 				offsite.enqueueUpload(out.meta().id);
 				kickOffsite();
@@ -839,23 +822,19 @@ public final class BackupManager {
 				int older = Math.min(a, b), newer = Math.max(a, b);
 				BackupDiff.Result d = BackupDiff.compare(services.repo.loadManifest(older), services.repo.loadManifest(newer), 8);
 				if (d.isEmpty()) {
-					fb.info("Backups #" + older + " and #" + newer + " are identical (" + d.unchanged() + " files).");
+					fb.info("cytrabackups.diff.same", older, newer);
 					return;
 				}
-				fb.info("Diff #" + older + " -> #" + newer + ": " + d.added().size() + " added, " + d.removed().size() + " removed, "
-					+ d.changed().size() + " changed files (" + d.changedChunks() + " chunks), " + d.unchanged() + " unchanged.");
-				d.added().stream().limit(8).forEach(p -> fb.send(Msg.text("  + " + p, ChatFormatting.GREEN), false));
-				d.removed().stream().limit(8).forEach(p -> fb.send(Msg.text("  - " + p, ChatFormatting.RED), false));
-				d.changed().stream().limit(12).forEach(c -> {
-					String extra = c.region() == null ? " (" + Formatting.bytes(c.oldSize()) + " -> " + Formatting.bytes(c.newSize()) + ")"
-						: " (" + c.region().modified() + " modified, " + c.region().added() + " new, " + c.region().removed() + " removed chunks"
-						+ (c.region().chunks().isEmpty() ? "" : "; e.g. " + c.region().chunks().stream().limit(4).map(p -> p.x() + "," + p.z()).toList()) + ")";
-					fb.send(Msg.text("  ~ " + c.path() + extra, ChatFormatting.YELLOW), false);
-				});
+				fb.info("cytrabackups.diff.title", older, newer, d.added().size(), d.removed().size(), d.changed().size(), d.changedChunks());
+				d.added().stream().limit(8).forEach(p -> fb.send(Msg.detail("cytrabackups.diff.added", p), false));
+				d.removed().stream().limit(8).forEach(p -> fb.send(Msg.detail("cytrabackups.diff.removed", p), false));
+				d.changed().stream().limit(12).forEach(c -> fb.send(c.region() == null
+					? Msg.detail("cytrabackups.diff.changed_file", c.path(), Formatting.bytes(c.oldSize()), Formatting.bytes(c.newSize()))
+					: Msg.detail("cytrabackups.diff.changed_region", c.path(), c.region().modified(), c.region().added(), c.region().removed()), false));
 				int more = Math.max(0, d.added().size() - 8) + Math.max(0, d.removed().size() - 8) + Math.max(0, d.changed().size() - 12);
-				if (more > 0) fb.info("... and " + more + " more.");
+				if (more > 0) fb.send(Msg.detail("cytrabackups.more", more), false);
 			} catch (IOException e) {
-				fb.error(e.getMessage());
+				fb.error("cytrabackups.error.plain", e.getMessage());
 			}
 		});
 	}
@@ -864,19 +843,19 @@ public final class BackupManager {
 		if (countdown != null) {
 			String label = countdown.label();
 			countdown = null;
-			server.getPlayerList().broadcastSystemMessage(Msg.success(label + " was cancelled by " + src.getTextName() + "."), false);
+			server.getPlayerList().broadcastSystemMessage(Msg.info("cytrabackups.countdown.cancelled", label, src.getTextName()), false);
 			return true;
 		}
 		Job job = currentJob.get();
 		if (job == null) return false;
 		job.cancel().cancel("cancelled by " + src.getTextName());
-		src.sendSuccess(() -> Msg.info("Cancelling " + job.name() + "..."), true);
+		src.sendSuccess(() -> Msg.info("cytrabackups.job.cancelling", job.displayName()), true);
 		return true;
 	}
 
 	public void reload(Feedback fb) {
 		if (currentJob.get() != null) {
-			fb.error("Wait for the running job to finish before reloading.");
+			fb.error("cytrabackups.error.reload_busy");
 			return;
 		}
 		async(() -> reloadNow(fb));
@@ -885,7 +864,7 @@ public final class BackupManager {
 	/** Writes settings edited in the GUI to the config file and reloads; {@code after} then runs on the server thread. */
 	public void saveConfigAndReload(CytraConfig edited, Feedback fb, Runnable after) {
 		if (currentJob.get() != null) {
-			fb.error("A job is running. Save the settings again when it has finished.");
+			fb.error("cytrabackups.error.save_busy");
 			server.execute(after);
 			return;
 		}
@@ -894,7 +873,7 @@ public final class BackupManager {
 				ConfigIO.save(ModEnv.configFile(), edited);
 				reloadNow(fb);
 			} catch (IOException e) {
-				fb.error("Could not write the config file: " + rootMessage(e));
+				fb.error("cytrabackups.error.config_write", rootMessage(e));
 			} finally {
 				server.execute(after);
 			}
@@ -912,13 +891,11 @@ public final class BackupManager {
 			offsite = freshOffsite;
 			notifier.configure(cfg);
 			old.close();
-			fb.success("Configuration reloaded (" + fresh.repo.list().size() + " backups in " + fresh.storage + ").");
+			fb.success(Lang.plural("cytrabackups.reload.done", fresh.repo.list().size()), fresh.repo.list().size());
 		} catch (Exception e) {
-			fb.error("Reload failed, keeping the old configuration: " + rootMessage(e));
+			fb.error("cytrabackups.error.reload", rootMessage(e));
 		}
 	}
-
-	// ------------------------------------------------------------------ off-site
 
 	OffsiteTarget createTarget(CytraConfig cfg) {
 		CytraConfig.OffsiteSettings o = cfg.offsite;
@@ -945,7 +922,7 @@ public final class BackupManager {
 					target.describe(), r.backupsUploaded(), r.blobsUploaded(), Formatting.bytes(r.bytesUploaded()), r.deleted());
 			} catch (Exception e) {
 				CytraBackups.LOGGER.warn("CytraBackups: off-site sync failed (will retry later): {}", rootMessage(e));
-				notifier.backupFailure("Off-site copy", rootMessage(e));
+				notifier.backupFailure(Lang.get("cytrabackups.offsite.copy"), rootMessage(e));
 			} finally {
 				offsiteProgress = null;
 			}
@@ -954,87 +931,84 @@ public final class BackupManager {
 
 	public void offsiteSyncAll(Feedback fb) {
 		if (!config.offsite.enabled) {
-			fb.error("Off-site copies are disabled (offsite.enabled in the config).");
+			fb.error("cytrabackups.error.offsite_off");
 			return;
 		}
 		async(() -> {
 			try (OffsiteTarget target = createTarget(config)) {
 				offsite.bindTarget(target.id());
 				int n = offsite.enqueueMissing();
-				fb.success("Queued " + n + " backup(s) for upload to " + target.describe() + ".");
+				fb.success(Lang.plural("cytrabackups.offsite.queued", n), n, target.describe());
 				kickOffsite();
 			} catch (Exception e) {
-				fb.error("Off-site sync failed: " + rootMessage(e));
+				fb.error("cytrabackups.error.offsite", rootMessage(e));
 			}
 		});
 	}
 
-	public List<String> offsiteStatus() {
-		List<String> out = new ArrayList<>();
+	/** First line is the summary; further lines are details. */
+	public List<Component> offsiteStatus() {
+		List<Component> out = new ArrayList<>();
 		if (!config.offsite.enabled) {
-			out.add("Off-site: disabled");
+			out.add(Msg.tr("cytrabackups.offsite.off"));
 			return out;
 		}
 		OffsiteSync.Queue q = offsite.queue();
-		out.add("Off-site (" + config.offsite.type + "): " + q.uploaded.size() + " backup(s) uploaded, " + q.uploads.size() + " queued, "
-			+ q.deleteKeys.size() + " deletion(s) queued");
-		if (q.lastSuccess > 0) out.add("Last successful sync: " + Formatting.dateTime(q.lastSuccess, zone()));
-		if (!q.lastError.isBlank()) out.add("Last error: " + q.lastError);
+		out.add(Msg.tr("cytrabackups.offsite.summary", config.offsite.type, q.uploaded.size(), q.uploads.size()));
+		if (q.lastSuccess > 0) out.add(Msg.detail("cytrabackups.offsite.last", Msg.ago(q.lastSuccess, zone())));
+		if (!q.lastError.isBlank()) out.add(Msg.tr("cytrabackups.offsite.last_error", q.lastError).withStyle(ChatFormatting.RED));
 		Progress p = offsiteProgress;
-		if (p != null) out.add("Uploading: " + p.phase() + " " + Formatting.percent(p.fraction()));
+		if (p != null) out.add(Msg.detail("cytrabackups.offsite.progress", p.phase(), Formatting.percent(p.fraction())));
 		return out;
 	}
-
-	// ------------------------------------------------------------------ status
 
 	/** Server thread: snapshots in-memory state, then does the disk reads (free space, queue) off-thread. */
 	public void sendStatus(CommandSourceStack src) {
 		List<Component> lines = new ArrayList<>();
 		long now = System.currentTimeMillis();
+		lines.add(Msg.info("cytrabackups.status.title"));
 		Job job = currentJob.get();
-		if (countdown != null) lines.add(Msg.warn(countdown.label() + ": server stops in " + countdown.secondsLeft() + "s"));
+		if (countdown != null) lines.add(Msg.tr("cytrabackups.status.countdown", countdown.label(), countdown.secondsLeft()).withStyle(ChatFormatting.RED));
 		if (job != null) {
 			Progress p = job.progress();
-			String eta = "";
 			float f = p.fraction();
-			if (f > 0.02f) {
-				long elapsed = now - job.startedAt();
-				eta = ", ETA " + Formatting.duration((long) (elapsed / f - elapsed));
-			}
-			lines.add(Msg.info("Running: " + ProgressDisplay.line(job) + " — started by " + job.requestedBy() + " " + Formatting.ago(job.startedAt(), now)
-				+ eta + (p.detail().isBlank() ? "" : " [" + p.detail() + "]")));
+			long elapsed = now - job.startedAt();
+			MutableComponent line = Msg.tr("cytrabackups.status.job", ProgressDisplay.line(job), job.requestedBy(), Msg.ago(job.startedAt(), zone()));
+			if (f > 0.02f) line.append(" ").append(Msg.tr("cytrabackups.status.eta", Formatting.duration((long) (elapsed / f - elapsed))));
+			lines.add(line);
 		} else {
-			lines.add(Msg.info("No job running."));
+			lines.add(Msg.detail("cytrabackups.status.idle"));
 		}
-		List<BackupMeta> all = services.repo.list();
 		RepositoryState st = services.repo.state();
-		lines.add(Msg.info(all.size() + " backups; last backup " + (st.lastBackup > 0 ? Formatting.ago(st.lastBackup, now) : "never")
-			+ "; next automatic backup " + nextBackupDescription(now) + "."));
-		List<String> offsiteLines = offsiteStatus();
+		Component last = st.lastBackup > 0 ? Msg.ago(st.lastBackup, zone()) : Msg.tr("cytrabackups.status.never");
+		lines.add(Msg.tr(Lang.plural("cytrabackups.status.backups", services.repo.list().size()), services.repo.list().size(), last, nextBackupDescription(now)));
+		List<Component> offsiteLines = offsiteStatus();
 		async(() -> {
 			long free = FileUtil.usableSpace(services.storage);
-			lines.add(Msg.info("Storage: " + services.storage + " (" + Formatting.bytes(free) + " free)"));
+			Path game = ModEnv.gameDir();
+			String where = services.storage.startsWith(game) ? FileUtil.relative(game, services.storage) : services.storage.toString();
+			lines.add(Msg.tr("cytrabackups.status.storage", where, Formatting.bytes(free)));
 			try {
 				PendingOperation op = PendingOperationRunner.readPending(services.storage);
-				if (op != null) lines.add(Msg.warn("Queued for restart: " + op.describe()));
+				if (op != null) lines.add(Msg.tr("cytrabackups.status.queued", op.describe()));
 			} catch (IOException ignored) {
 			}
-			for (String s : offsiteLines) lines.add(Msg.info(s));
+			MutableComponent off = Msg.tr("cytrabackups.status.offsite", offsiteLines.getFirst());
+			lines.add(off);
+			for (Component c : offsiteLines.subList(1, offsiteLines.size())) lines.add(c);
 			server.execute(() -> {
 				for (Component line : lines) src.sendSuccess(() -> line, false);
 			});
 		});
 	}
 
-	private String nextBackupDescription(long now) {
+	private Component nextBackupDescription(long now) {
 		CytraConfig.ScheduleSettings s = config.schedule;
-		if (!s.enabled) return "disabled";
+		if (!s.enabled) return Msg.tr("cytrabackups.status.next_off");
 		long next = nextScheduledTime(now);
-		if (next == Long.MAX_VALUE) return "not scheduled";
-		return next <= now ? "due now" : "in " + Formatting.duration(next - now);
+		if (next == Long.MAX_VALUE) return Msg.tr("cytrabackups.status.next_none");
+		return next <= now ? Msg.tr("cytrabackups.status.next_due") : Msg.tr("cytrabackups.status.next_in", Formatting.duration(next - now));
 	}
-
-	// ------------------------------------------------------------------ scheduler & tick (server thread)
 
 	long nextScheduledTime(long now) {
 		CytraConfig.ScheduleSettings s = config.schedule;
@@ -1083,7 +1057,7 @@ public final class BackupManager {
 		if (leaveBackupPending && !playersOnline) {
 			leaveBackupPending = false;
 			nextScheduleCheck = now + 60_000L;
-			createBackup(Trigger.PLAYER_LEAVE, "Last player left", "scheduler", Feedback.console());
+			createBackup(Trigger.PLAYER_LEAVE, Lang.get("cytrabackups.backup.comment_leave"), "scheduler", Feedback.console());
 			return;
 		}
 		if (cfg.schedule.enabled && now >= nextScheduledTime(now)) {
@@ -1120,7 +1094,7 @@ public final class BackupManager {
 	public void onPlayerJoin(ServerPlayer player) {
 		RestoreResult r = startupResult;
 		if (r != null && System.currentTimeMillis() - r.finishedAt < 3_600_000L && Perms.check(player, Perms.RESTORE)) {
-			player.sendSystemMessage(r.success ? Msg.success("Last restore: " + r.message) : Msg.error("Last restore FAILED: " + r.message));
+			player.sendSystemMessage(r.success ? Msg.success("cytrabackups.restore.last_ok", r.message) : Msg.error("cytrabackups.restore.last_failed", r.message));
 		}
 	}
 
@@ -1174,7 +1148,7 @@ public final class BackupManager {
 				req.worldDir = worldDir;
 				req.levelName = levelName;
 				req.trigger = Trigger.SHUTDOWN;
-				req.comment = "Server stop";
+				req.comment = Lang.get("cytrabackups.backup.comment_stop");
 				req.creator = "server";
 				req.filter = s.filter();
 				req.excludedDirs = s.excludedDirs(worldDir);
@@ -1194,7 +1168,7 @@ public final class BackupManager {
 			}
 		} catch (Exception e) {
 			CytraBackups.LOGGER.error("CytraBackups: shutdown work failed", e);
-			notifier.backupFailure("Shutdown backup/restore", rootMessage(e));
+			notifier.backupFailure(Lang.get("cytrabackups.job.shutdown"), rootMessage(e));
 		} finally {
 			ioExecutor.shutdown();
 			offsiteExecutor.shutdownNow();
@@ -1208,15 +1182,6 @@ public final class BackupManager {
 			notifier.close();
 			instance = null;
 		}
-	}
-
-	// ------------------------------------------------------------------ GUI support
-
-	public ServerLevel levelOf(String dimensionId) {
-		for (ServerLevel l : server.getAllLevels()) {
-			if (l.dimension().identifier().toString().equals(dimensionId)) return l;
-		}
-		return null;
 	}
 
 	public String levelName() {

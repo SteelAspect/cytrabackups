@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.restore;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Hash;
@@ -94,11 +95,9 @@ public final class RestoreEngine {
 		return ID_TIME.format(LocalDateTime.now()) + "-" + kind.name().toLowerCase(java.util.Locale.ROOT) + "-" + backupId;
 	}
 
-	// ---------------------------------------------------------------- planning
-
 	public RestorePlan planFull(Manifest manifest, int backupId, boolean partialBackup, Path world, PathFilter filter,
 								List<Path> excludedDirs, Progress progress, CancelToken cancel) throws IOException {
-		progress.phase("Planning restore");
+		progress.phase(Lang.get("cytrabackups.phase.plan_restore"));
 		List<String> notes = new ArrayList<>();
 		Map<String, Path> current = walkWorld(world, filter, excludedDirs);
 		List<Callable<RestorePlan.Op>> tasks = new ArrayList<>();
@@ -113,7 +112,7 @@ public final class RestoreEngine {
 				if (existing == null) return new RestorePlan.Op(e.path(), RestorePlan.Action.PLACE, new RestorePlan.FromEntry(e), null, false);
 				boolean region = e instanceof RegionEntry;
 				Hash cur = currentHashFor(existing, e, region);
-				if (cur != null && cur.equals(e.contentHash())) return null; // unchanged
+				if (cur != null && cur.equals(e.contentHash())) return null;
 				if (cur == null) { // unreadable as region: hash as plain for the recycle record
 					cur = ContentHasher.plain(existing);
 					region = false;
@@ -121,7 +120,7 @@ public final class RestoreEngine {
 				return new RestorePlan.Op(e.path(), RestorePlan.Action.PLACE, new RestorePlan.FromEntry(e), cur, region);
 			});
 		}
-		if (skippedByFilter[0] > 0) notes.add(skippedByFilter[0] + " file(s) in the backup are excluded by the current include/exclude settings and were left alone");
+		if (skippedByFilter[0] > 0) notes.add(Lang.get("cytrabackups.restore.note.excluded", skippedByFilter[0]));
 		if (!partialBackup) {
 			for (Map.Entry<String, Path> c : current.entrySet()) {
 				if (manifest.get(c.getKey()) != null) continue;
@@ -162,7 +161,7 @@ public final class RestoreEngine {
 
 	public RestorePlan planChunks(Manifest manifest, int backupId, Path world, String dimensionFolder, ChunkSelection selection,
 								  Progress progress, CancelToken cancel) throws IOException {
-		progress.phase("Planning chunk restore");
+		progress.phase(Lang.get("cytrabackups.phase.plan_restore"));
 		List<RestorePlan.Op> ops = new ArrayList<>();
 		List<String> notes = new ArrayList<>();
 		int unchanged = 0;
@@ -208,12 +207,12 @@ public final class RestoreEngine {
 				}
 			}
 		}
-		if (ops.isEmpty()) notes.add("No region, entity or POI data exists for the selected area in either the backup or the world.");
-		return new RestorePlan(RestoreRecord.Kind.CHUNKS, backupId, selection.describe() + " in " + (dimensionFolder.isEmpty() ? "overworld" : dimensionFolder) + " from backup #" + backupId, ops, unchanged, notes);
+		if (ops.isEmpty()) notes.add(Lang.get("cytrabackups.restore.note.empty_area"));
+		return new RestorePlan(RestoreRecord.Kind.CHUNKS, backupId, Lang.get("cytrabackups.restore.chunks_from", selection.describe(), dimensionFolder.isEmpty() ? "overworld" : dimensionFolder, backupId), ops, unchanged, notes);
 	}
 
 	public RestorePlan planRollback(RestoreRecord record, Path world, Progress progress, CancelToken cancel) throws IOException {
-		progress.phase("Planning rollback");
+		progress.phase(Lang.get("cytrabackups.phase.plan_restore"));
 		if (record.rolledBack) throw new IOException("Restore " + record.restoreId + " was already rolled back");
 		Path recycle = Path.of(record.recycleDir);
 		if (!Files.isDirectory(recycle)) throw new IOException("Recycle bin for " + record.restoreId + " no longer exists");
@@ -273,8 +272,6 @@ public final class RestoreEngine {
 		return out;
 	}
 
-	// ---------------------------------------------------------------- execution
-
 	private record Expected(Hash hash, boolean region) {
 	}
 
@@ -292,7 +289,7 @@ public final class RestoreEngine {
 		Map<String, Expected> expected = new ConcurrentHashMap<>();
 		try {
 			// 1. stage + verify
-			progress.phase("Staging restored files");
+			progress.phase(Lang.get("cytrabackups.phase.stage"));
 			List<Callable<Void>> stageTasks = new ArrayList<>();
 			for (RestorePlan.Op op : plan.ops()) {
 				if (op.action() != RestorePlan.Action.PLACE) continue;
@@ -313,7 +310,7 @@ public final class RestoreEngine {
 			cancel.check();
 
 			// 2. swap (journaled)
-			progress.phase("Swapping files");
+			progress.phase(Lang.get("cytrabackups.phase.swap"));
 			progress.addTotal(plan.ops().size(), 0);
 			RestoreRecord record = new RestoreRecord();
 			record.restoreId = restoreId;
@@ -356,7 +353,7 @@ public final class RestoreEngine {
 				}
 
 				// 3. verify in place; roll back everything on any mismatch
-				progress.phase("Verifying restored files");
+				progress.phase(Lang.get("cytrabackups.phase.verify_restore"));
 				List<Callable<Void>> verifyTasks = new ArrayList<>();
 				List<String> failures = Collections.synchronizedList(new ArrayList<>());
 				for (RestoreRecord.Item item : record.items) {
@@ -490,8 +487,6 @@ public final class RestoreEngine {
 		return new Expected(RegionEntry.logicalHash(refs), true);
 	}
 
-	// ---------------------------------------------------------------- crash recovery
-
 	/**
 	 * If a previous restore was interrupted mid-swap, undo its partial changes. Returns true if anything was
 	 * recovered. Safe to call at any time while the world is not in use.
@@ -537,8 +532,6 @@ public final class RestoreEngine {
 		Files.deleteIfExists(journalFile);
 		return true;
 	}
-
-	// ---------------------------------------------------------------- records & recycle bin
 
 	public List<RestoreRecord> listRecords() throws IOException {
 		List<RestoreRecord> out = new ArrayList<>();
@@ -591,8 +584,6 @@ public final class RestoreEngine {
 	public Path storageRoot() {
 		return storageRoot;
 	}
-
-	// ---------------------------------------------------------------- helpers
 
 	private <T> List<T> runAll(List<Callable<T>> tasks, Progress progress, CancelToken cancel) throws IOException {
 		List<Future<T>> futures = new ArrayList<>(tasks.size());

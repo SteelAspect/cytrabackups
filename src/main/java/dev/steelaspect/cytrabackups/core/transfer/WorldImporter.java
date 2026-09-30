@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.transfer;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Progress;
@@ -33,7 +34,7 @@ public final class WorldImporter {
 				folder = source;
 			} else if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
 				extracted = tmpDir.resolve("import-" + UUID.randomUUID());
-				progress.phase("Extracting " + source.getFileName());
+				progress.phase(Lang.get("cytrabackups.phase.extract", source.getFileName()));
 				unzip(source, extracted, cancel);
 				folder = extracted;
 			} else {

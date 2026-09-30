@@ -1,5 +1,7 @@
 package dev.steelaspect.cytrabackups.core.prune;
 
+import dev.steelaspect.cytrabackups.core.Formatting;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.Trigger;
@@ -56,13 +58,13 @@ public final class Pruner {
 
 		for (BackupMeta b : newestFirst) {
 			if (b.pinned) {
-				keepReasons.get(b.id).add("pinned");
+				keepReasons.get(b.id).add(Lang.get("cytrabackups.prune.reason.pinned"));
 				protectedIds.add(b.id);
 			}
 		}
 		BackupMeta latest = newestFirst.stream().filter(b -> !b.partial).findFirst().orElse(null);
 		if (policy.alwaysKeepLatest() && latest != null) {
-			keepReasons.get(latest.id).add("latest backup");
+			keepReasons.get(latest.id).add(Lang.get("cytrabackups.prune.reason.latest"));
 			protectedIds.add(latest.id);
 		}
 
@@ -70,7 +72,7 @@ public final class Pruner {
 		List<BackupMeta> full = newestFirst.stream().filter(b -> !b.partial).toList();
 		if (policy.keepLast() > 0) {
 			for (int i = 0; i < Math.min(policy.keepLast(), full.size()); i++) {
-				keepReasons.get(full.get(i).id).add("last " + policy.keepLast());
+				keepReasons.get(full.get(i).id).add(Lang.get("cytrabackups.prune.reason.last", policy.keepLast()));
 			}
 		}
 		applyBuckets(full, Bucket.HOURLY, policy.keepHourly(), keepReasons);
@@ -82,7 +84,7 @@ public final class Pruner {
 			if (b.trigger == Trigger.PRE_RESTORE && policy.keepPreRestore()) {
 				double ageDays = (now - b.createdAt) / 86_400_000.0;
 				if (policy.preRestoreMaxAgeDays() <= 0 || ageDays <= policy.preRestoreMaxAgeDays()) {
-					keepReasons.get(b.id).add("pre-restore safety backup");
+					keepReasons.get(b.id).add(Lang.get("cytrabackups.prune.reason.pre_restore"));
 				}
 			}
 		}
@@ -94,14 +96,14 @@ public final class Pruner {
 			boolean expiredPreRestore = b.trigger == Trigger.PRE_RESTORE && policy.keepPreRestore() && policy.preRestoreMaxAgeDays() > 0;
 			if (!keep && !policy.hasKeepRules() && !expiredPreRestore) {
 				keep = true;
-				reasons.add("no retention rules configured");
+				reasons.add(Lang.get("cytrabackups.prune.reason.no_rules"));
 			}
 			if (keep) {
 				kept.add(b.id);
 			} else {
 				deleteReasons.computeIfAbsent(b.id, k -> new ArrayList<>()).add(expiredPreRestore
-					? "pre-restore backup older than " + policy.preRestoreMaxAgeDays() + " days"
-					: b.partial ? "area backup not covered by any rule" : "not selected by any keep rule");
+					? Lang.get("cytrabackups.prune.reason.pre_restore_old", Formatting.number(policy.preRestoreMaxAgeDays()))
+					: Lang.get(b.partial ? "cytrabackups.prune.reason.area" : "cytrabackups.prune.reason.no_rule"));
 			}
 		}
 
@@ -111,7 +113,7 @@ public final class Pruner {
 				double ageDays = (now - b.createdAt) / 86_400_000.0;
 				if (ageDays > policy.maxAgeDays()) {
 					kept.remove(b.id);
-					deleteReasons.computeIfAbsent(b.id, k -> new ArrayList<>()).add(String.format(java.util.Locale.ROOT, "older than max age (%.1f > %.1f days)", ageDays, policy.maxAgeDays()));
+					deleteReasons.computeIfAbsent(b.id, k -> new ArrayList<>()).add(Lang.get("cytrabackups.prune.reason.max_age", Formatting.number(policy.maxAgeDays()), Formatting.number(ageDays)));
 				}
 			}
 		}
@@ -131,13 +133,13 @@ public final class Pruner {
 	private void applyBuckets(List<BackupMeta> newestFirst, Bucket bucket, int count, Map<Integer, List<String>> reasons) {
 		if (count <= 0) return;
 		Set<Long> seen = new HashSet<>();
-		String label = bucket.name().toLowerCase(java.util.Locale.ROOT);
+		String reasonKey = "cytrabackups.prune.reason." + bucket.name().toLowerCase(java.util.Locale.ROOT);
 		for (BackupMeta b : newestFirst) {
 			long key = bucketKey(b.createdAt, bucket);
 			if (seen.contains(key)) continue;
 			if (seen.size() >= count) break;
 			seen.add(key);
-			reasons.get(b.id).add(label + " #" + seen.size());
+			reasons.get(b.id).add(Lang.get(reasonKey, seen.size()));
 		}
 	}
 
@@ -190,7 +192,7 @@ public final class Pruner {
 			}
 			total -= freed;
 			kept.remove(b.id);
-			deleteReasons.computeIfAbsent(b.id, k -> new ArrayList<>()).add("over max total size (frees " + dev.steelaspect.cytrabackups.core.Formatting.bytes(freed) + ")");
+			deleteReasons.computeIfAbsent(b.id, k -> new ArrayList<>()).add(Lang.get("cytrabackups.prune.reason.max_size", Formatting.bytes(freed)));
 		}
 	}
 

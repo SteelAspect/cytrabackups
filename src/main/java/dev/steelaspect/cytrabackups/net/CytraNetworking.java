@@ -1,8 +1,10 @@
 package dev.steelaspect.cytrabackups.net;
 
 import dev.steelaspect.cytrabackups.CytraBackups;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.config.ConfigSchema;
+import dev.steelaspect.cytrabackups.mc.BackupCommands;
 import dev.steelaspect.cytrabackups.mc.BackupManager;
 import dev.steelaspect.cytrabackups.mc.Feedback;
 import dev.steelaspect.cytrabackups.mc.Msg;
@@ -18,9 +20,9 @@ import net.minecraft.server.level.ServerPlayer;
 
 /**
  * Optional GUI channel. The server only ever sends these payloads to clients that announced support, so vanilla
- * clients are never affected. GUI actions run through the normal {@code /backup} command tree as the player, so every
+ * clients are never affected. GUI actions run through the normal {@code /cbackup} command tree as the player, so every
  * permission check and message is the same as typing the command; only the settings editor has its own handlers,
- * which require cytrabackups.admin like /backup reload.
+ * which require cytrabackups.admin like /cbackup reload.
  */
 public final class CytraNetworking {
 	private CytraNetworking() {
@@ -56,18 +58,18 @@ public final class CytraNetworking {
 	}
 
 	/**
-	 * Runs a /backup command for the GUI as the player, through the normal command tree (so the same permission checks
+	 * Runs a /cbackup command for the GUI as the player, through the normal command tree (so the same permission checks
 	 * apply); any other command is refused. Server thread.
 	 */
 	public static void runCommand(GuiCommandSource out, String command) {
 		ServerPlayer player = out.player();
 		String cmd = command.startsWith("/") ? command.substring(1) : command;
-		if (!(cmd.equals("backup") || cmd.startsWith("backup "))) {
-			out.sendSystemMessage(Msg.error("The GUI can only run /backup commands."));
+		if (!(cmd.equals(BackupCommands.ROOT) || cmd.startsWith(BackupCommands.ROOT + " "))) {
+			out.sendSystemMessage(Msg.error("cytrabackups.error.gui_command", BackupCommands.ROOT));
 			return;
 		}
 		if (BackupManager.getOrNull() == null) {
-			out.sendSystemMessage(Msg.error("CytraBackups is not running on this server."));
+			out.sendSystemMessage(Msg.error("cytrabackups.error.not_running"));
 			return;
 		}
 		CytraBackups.LOGGER.info("{} ran /{} from the CytraBackups GUI", player.getGameProfile().name(), cmd);
@@ -78,19 +80,19 @@ public final class CytraNetworking {
 	static void handleRequest(RequestPayload p, ServerPlayer player) {
 		BackupManager m = BackupManager.getOrNull();
 		if (m == null) {
-			sendMessage(player, Msg.error("CytraBackups is not running on this server."), true);
+			sendMessage(player, Msg.error("cytrabackups.error.not_running"), true);
 			return;
 		}
 		switch (p.action()) {
 			case RequestPayload.LIST -> sendList(player, m);
 			case RequestPayload.CONFIG -> {
 				if (!Perms.check(player, Perms.ADMIN)) {
-					sendMessage(player, Msg.error("Changing settings needs the cytrabackups.admin permission."), true);
+					sendMessage(player, Msg.error("cytrabackups.error.no_admin"), true);
 					return;
 				}
 				sendConfig(player, m, List.of());
 			}
-			default -> sendMessage(player, Msg.error("Unknown request " + p.action()), true);
+			default -> sendMessage(player, Msg.error("cytrabackups.error.request", p.action()), true);
 		}
 	}
 
@@ -105,20 +107,20 @@ public final class CytraNetworking {
 		if (m == null) return;
 		Feedback fb = Feedback.of(player.createCommandSourceStack()).and(Feedback.console());
 		if (!Perms.check(player, Perms.ADMIN)) {
-			fb.error("Changing settings needs the cytrabackups.admin permission.");
+			fb.error("cytrabackups.error.no_admin");
 			return;
 		}
 		if (p.changes().isEmpty()) {
-			fb.info("No settings were changed.");
+			fb.info("cytrabackups.settings.unchanged");
 			return;
 		}
 		ConfigSchema.Result r = ConfigSchema.apply(m.config(), p.changes());
 		if (!r.ok()) {
-			fb.error("Settings not saved: " + String.join("; ", r.problems()));
+			fb.error("cytrabackups.error.settings", String.join("; ", r.problems()));
 			sendConfig(player, m, r.problems());
 			return;
 		}
-		fb.info(player.getGameProfile().name() + " changed " + String.join(", ", p.changes().keySet()) + "; saving and reloading...");
+		fb.info("cytrabackups.settings.saving", player.getGameProfile().name(), String.join(", ", p.changes().keySet()));
 		m.saveConfigAndReload(r.config(), fb, () -> sendConfig(player, m, List.of()));
 	}
 
@@ -139,7 +141,8 @@ public final class CytraNetworking {
 		for (int i = 0; i < nodes.length; i++) if (Perms.check(player, nodes[i])) perms |= flags[i];
 		BackupManager.Job job = m.currentJob();
 		String countdown = m.countdownLabel();
-		String status = countdown != null ? countdown + " (countdown running)" : job == null ? (canList ? list.size() + " backups" : "") : job.name() + " running";
+		String status = countdown != null ? Lang.get("cytrabackups.gui.status.countdown", countdown)
+			: job != null ? Lang.get("cytrabackups.gui.status.job", job.displayName()) : canList ? Lang.get(Lang.plural("cytrabackups.gui.status.count", list.size()), list.size()) : "";
 		List<String> dims = new ArrayList<>();
 		for (ServerLevel level : m.server().getAllLevels()) dims.add(level.dimension().identifier().toString());
 		ServerPlayNetworking.send(player, new BackupListPayload(entries, status, job == null ? "" : job.progress().phase(),

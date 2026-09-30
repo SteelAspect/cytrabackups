@@ -3,6 +3,7 @@ package dev.steelaspect.cytrabackups.mc;
 import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.Formatting;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import dev.steelaspect.cytrabackups.core.notify.DiscordWebhook;
@@ -53,7 +54,7 @@ public final class StartupRestore {
 				result = new RestoreResult();
 				result.operation = op.describe();
 				result.success = false;
-				result.message = "A previous attempt to apply this restore did not finish (crash or kill). It was rolled back and will not be retried automatically.";
+				result.message = Lang.get("cytrabackups.restore.interrupted");
 				result.finishedAt = System.currentTimeMillis();
 			} else {
 				op.attempts++;
@@ -100,10 +101,12 @@ public final class StartupRestore {
 		if (!cfg.discord.enabled || !cfg.discord.onRestore || cfg.discord.webhookUrl.isBlank()) return;
 		try (DiscordWebhook hook = new DiscordWebhook(cfg.discord.webhookUrl, cfg.discord.username, CytraBackups.LOGGER::warn)) {
 			if (r.success) {
-				hook.send(DiscordWebhook.Level.SUCCESS, "Restore applied", r.message + (r.preRestoreBackupId != null ? "\nPre-restore backup: #" + r.preRestoreBackupId : ""));
+				hook.send(DiscordWebhook.Level.SUCCESS, Lang.get("cytrabackups.discord.restore_applied"),
+					r.message + (r.preRestoreBackupId != null ? "\n" + Lang.get("cytrabackups.discord.pre_restore", r.preRestoreBackupId) : ""));
 			} else {
 				if (!cfg.discord.failureMention.isBlank()) hook.sendText(cfg.discord.failureMention);
-				hook.send(DiscordWebhook.Level.FAILURE, "Restore failed", r.operation + "\n" + r.message + "\nThe world was left unchanged.");
+				hook.send(DiscordWebhook.Level.FAILURE, Lang.get("cytrabackups.discord.restore_failed"),
+					r.operation + "\n" + r.message + "\n" + Lang.get("cytrabackups.discord.unchanged"));
 			}
 		}
 	}

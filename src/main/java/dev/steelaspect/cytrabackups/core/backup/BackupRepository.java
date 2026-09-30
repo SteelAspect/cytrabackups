@@ -184,14 +184,6 @@ public final class BackupRepository {
 		return m;
 	}
 
-	public List<Hash> loadNewBlobs(int id) throws IOException {
-		Path file = backupDir(id).resolve("new-blobs.bin");
-		if (!Files.exists(file)) return List.of();
-		try (InputStream in = Files.newInputStream(file)) {
-			return readHashes(in);
-		}
-	}
-
 	public void delete(int id) throws IOException {
 		Path dir = backupDir(id);
 		Path trash = backupsDir.resolve(dirName(id) + ".deleting");

@@ -108,10 +108,10 @@ public class CytraBackupsGameTest {
 				forceLoad(level, false);
 				m.startChunkRestore(ids[0], level, ChunkSelection.box(CX, CZ, CX, CZ), "gametest", msgs);
 			})
-			.thenWaitUntil(() -> helper.assertTrue(m.currentJob() == null && (msgs.last().contains("LIVE") || msgs.last().contains("QUEUED")
+			.thenWaitUntil(() -> helper.assertTrue(m.currentJob() == null && (msgs.last().contains("Restored ") || msgs.last().contains("could not be restored now")
 				|| msgs.last().startsWith("ERROR")), "waiting for live chunk restore: " + msgs.last()))
 			.thenExecute(() -> {
-				helper.assertTrue(msgs.last().contains("LIVE"), "chunk restore should have been applied live: " + msgs.last());
+				helper.assertTrue(msgs.last().contains("Restored 1 chunk in"), "chunk restore should have been applied live: " + msgs.last());
 				forceLoad(level, true);
 				Block b = level.getBlockState(P).getBlock();
 				helper.assertTrue(b == Blocks.GOLD_BLOCK, "live chunk restore should bring back the gold block, found " + b);

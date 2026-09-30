@@ -31,11 +31,6 @@ public final class BackupMeta {
 	/** For pre-restore backups: the backup that was about to be restored. */
 	public Integer restoreTarget;
 
-	/** Bytes saved versus storing a full uncompressed copy. */
-	public long dedupSavedBytes() {
-		return Math.max(0, totalSize - newStoredBytes);
-	}
-
 	public BackupMeta copy() {
 		BackupMeta m = new BackupMeta();
 		m.id = id;

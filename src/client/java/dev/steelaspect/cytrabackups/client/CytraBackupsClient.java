@@ -19,14 +19,16 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 /**
  * Optional client GUI. Only talks to servers that register the CytraBackups channel; without it nothing is sent
- * and the player is pointed to the /backup commands instead. Open it with /backupgui, a key binding (unbound by
+ * and the player is pointed to the /cbackup commands instead. Open it with /cbackupgui, a key binding (unbound by
  * default) or the "Backups" button in the pause menu.
  */
 public final class CytraBackupsClient implements ClientModInitializer {
@@ -44,7 +46,7 @@ public final class CytraBackupsClient implements ClientModInitializer {
 				open(mc);
 			}
 		});
-		ClientCommandRegistrationCallback.EVENT.register((dispatcher, ctx) -> dispatcher.register(ClientCommandManager.literal("backupgui").executes(c -> {
+		ClientCommandRegistrationCallback.EVENT.register((dispatcher, ctx) -> dispatcher.register(ClientCommandManager.literal("cbackupgui").executes(c -> {
 			openRequested = true; // opened next tick, after the chat screen has closed
 			return 1;
 		})));
@@ -55,26 +57,25 @@ public final class CytraBackupsClient implements ClientModInitializer {
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientState.clear());
 		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
 			if (screen instanceof PauseScreen && ClientState.serverSupported()) {
-				Screens.getButtons(screen).add(Button.builder(Component.literal("Backups"), b -> open(client)).bounds(4, h - 24, 64, 20)
-					.tooltip(Tooltip.create(Component.literal("CytraBackups: create, restore and manage backups"))).build());
+				Screens.getButtons(screen).add(Button.builder(Component.translatable("cytrabackups.gui.pause_button"), b -> open(client)).bounds(4, h - 24, 64, 20)
+					.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.pause_button.tooltip"))).build());
 			}
 		});
 	}
 
-	/** A GUI action needs confirmation: show a dialog and answer with /backup confirm|deny <token>. */
+	/** A GUI action needs confirmation: show a dialog and answer with /cbackup confirm|deny <token>. */
 	private static void prompt(Minecraft mc, PromptPayload p) {
 		Screen back = mc.screen;
-		mc.setScreen(new ConfirmDialog(p.title(), p.details() + " (Expires after " + p.timeoutSeconds() + " seconds.)", "Confirm", Theme.DANGER, yes -> {
+		mc.setScreen(new ConfirmScreen(yes -> {
 			mc.setScreen(back);
-			ClientState.run("backup " + (yes ? "confirm " : "deny ") + p.token());
-		}));
+			ClientState.run((yes ? "confirm " : "deny ") + p.token());
+		}, Component.literal(p.title()), Component.literal(p.details()), Component.translatable("cytrabackups.gui.confirm"), CommonComponents.GUI_CANCEL));
 	}
 
 	public static void open(Minecraft mc) {
 		if (mc.player == null) return;
 		if (!ClientState.serverSupported()) {
-			mc.player.displayClientMessage(Component.literal("[CytraBackups] This server does not run CytraBackups' GUI channel (or runs another version). "
-				+ "Use the /backup commands instead."), false);
+			mc.player.displayClientMessage(Component.translatable("cytrabackups.gui.unsupported"), false);
 			return;
 		}
 		ClientState.requestList();

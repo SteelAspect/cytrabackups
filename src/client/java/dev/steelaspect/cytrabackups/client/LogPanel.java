@@ -7,13 +7,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.util.FormattedCharSequence;
 
 /**
  * Scrollable output panel showing the server's replies to GUI actions, with the same colours as chat. Links in the
- * text work: [Confirm], [Info], [Restore] etc. run their /backup command through the GUI, and "suggest" links open
+ * text work: [Confirm], [Info], [Restore] etc. run their /cbackup command through the GUI, and "suggest" links open
  * an editable command box.
  */
 final class LogPanel {
@@ -54,22 +55,23 @@ final class LogPanel {
 
 	void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
 		rewrap(font);
+		g.fill(x, y, x + w, y + h, 0x80000000);
 		int visible = visibleLines();
 		int maxScroll = Math.max(0, lines.size() - visible);
 		scroll = Math.min(scroll, maxScroll);
 		int first = Math.max(0, lines.size() - visible - scroll);
 		if (lines.isEmpty()) {
-			g.drawString(font, "Results of your actions appear here. [Links] in the text can be clicked.", x + 4, y + 3, Theme.FAINT);
+			g.drawString(font, Component.translatable("cytrabackups.gui.output.empty"), x + 4, y + 3, 0xFF808080);
 		}
 		g.enableScissor(x, y, x + w, y + h);
 		for (int i = 0; i < visible && first + i < lines.size(); i++) {
-			g.drawString(font, lines.get(first + i), x + 4, y + 3 + i * LINE, 0xFFE0E0E0);
+			g.drawString(font, lines.get(first + i), x + 4, y + 3 + i * LINE, 0xFFFFFFFF);
 		}
 		g.disableScissor();
 		if (maxScroll > 0) {
 			int barH = Math.max(8, h * visible / lines.size());
 			int barY = y + (h - barH) * (maxScroll - scroll) / maxScroll;
-			g.fill(x + w - 3, barY, x + w - 1, barY + barH, Theme.ACCENT);
+			g.fill(x + w - 3, barY, x + w - 1, barY + barH, 0xFFA0A0A0);
 		}
 		Style s = styleAt(font, mouseX, mouseY);
 		if (s != null && s.getHoverEvent() instanceof HoverEvent.ShowText(var text)) g.setTooltipForNextFrame(text, mouseX, mouseY);
@@ -109,8 +111,7 @@ final class LogPanel {
 		if (s == null || s.getClickEvent() == null) return contains(mx, my);
 		ClickEvent click = s.getClickEvent();
 		if (click instanceof ClickEvent.RunCommand(String command)) {
-			String cmd = command.startsWith("/") ? command.substring(1) : command;
-			if (cmd.equals("backup") || cmd.startsWith("backup ")) ClientState.run(cmd);
+			if (ClientState.isOwnCommand(command)) ClientState.runRaw(command);
 		} else if (click instanceof ClickEvent.SuggestCommand(String command)) {
 			suggest.accept(command);
 		} else if (click instanceof ClickEvent.CopyToClipboard(String value)) {

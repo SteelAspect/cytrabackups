@@ -8,7 +8,7 @@ import net.minecraft.resources.Identifier;
 
 /**
  * Server -> client: a command started from the GUI needs confirmation. The GUI shows a dialog and answers with
- * {@code /backup confirm <token>} or {@code /backup deny <token>}, exactly like clicking the chat links.
+ * {@code /cbackup confirm <token>} or {@code /cbackup deny <token>}, exactly like clicking the chat links.
  */
 public record PromptPayload(String token, String title, String details, int timeoutSeconds) implements CustomPacketPayload {
 	public static final Type<PromptPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "v2/prompt"));

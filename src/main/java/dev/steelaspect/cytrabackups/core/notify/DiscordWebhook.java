@@ -111,7 +111,7 @@ public final class DiscordWebhook implements AutoCloseable {
 
 	private static String truncate(String s, int max) {
 		if (s == null) return "";
-		return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+		return s.length() <= max ? s : s.substring(0, max - 3) + "...";
 	}
 
 	@Override

@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.restore;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,9 +36,9 @@ public final class PendingOperation {
 
 	public String describe() {
 		return switch (type) {
-			case FULL_RESTORE -> "full restore of backup #" + backupId;
-			case CHUNK_RESTORE -> "chunk restore from backup #" + backupId + " (" + selection().describe() + " in " + dimension + ")";
-			case ROLLBACK -> restoreId == null ? "rollback of the last restore" : "rollback of restore " + restoreId;
+			case FULL_RESTORE -> Lang.get("cytrabackups.pending.full", backupId);
+			case CHUNK_RESTORE -> Lang.get("cytrabackups.pending.chunks", backupId, selection().describe(), dimension);
+			case ROLLBACK -> restoreId == null ? Lang.get("cytrabackups.pending.rollback_last") : Lang.get("cytrabackups.pending.rollback", restoreId);
 		};
 	}
 }

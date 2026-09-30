@@ -7,7 +7,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 /**
- * Client -> server: a GUI button ran a {@code /backup ...} command. The server executes it as the player through the
+ * Client -> server: a GUI button ran a {@code /cbackup ...} command. The server executes it as the player through the
  * normal command tree, so permissions and behaviour are identical to typing it, and sends the output back to the GUI.
  */
 public record CommandPayload(String command) implements CustomPacketPayload {

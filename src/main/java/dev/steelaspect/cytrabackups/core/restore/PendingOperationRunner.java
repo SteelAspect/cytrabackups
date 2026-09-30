@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.restore;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.Formatting;
 import dev.steelaspect.cytrabackups.core.Json;
@@ -65,19 +66,19 @@ public final class PendingOperationRunner {
 			RestoreRecord record;
 			switch (op.type) {
 				case FULL_RESTORE -> {
-					BackupMeta meta = backups.repository().get(op.backupId).orElseThrow(() -> new IOException("Backup #" + op.backupId + " does not exist"));
+					BackupMeta meta = backups.repository().get(op.backupId).orElseThrow(() -> new IOException(Lang.get("cytrabackups.restore.missing_backup", op.backupId)));
 					Manifest manifest = backups.repository().loadManifest(op.backupId);
-					result.preRestoreBackupId = preRestoreBackup(op, world, null, "before restoring #" + op.backupId, progress, cancel);
+					result.preRestoreBackupId = preRestoreBackup(op, world, null, Lang.get("cytrabackups.restore.comment.full", op.backupId), progress, cancel);
 					RestorePlan plan = restore.planFull(manifest, op.backupId, meta.partial, world, filter, excludedDirs, progress, cancel);
 					record = restore.execute(plan, world, progress, cancel);
 					result.message = summary(plan);
 				}
 				case CHUNK_RESTORE -> {
-					backups.repository().get(op.backupId).orElseThrow(() -> new IOException("Backup #" + op.backupId + " does not exist"));
+					backups.repository().get(op.backupId).orElseThrow(() -> new IOException(Lang.get("cytrabackups.restore.missing_backup", op.backupId)));
 					Manifest manifest = backups.repository().loadManifest(op.backupId);
 					ChunkSelection sel = op.selection();
 					Set<String> affected = affectedPaths(op.dimensionFolder, sel);
-					result.preRestoreBackupId = preRestoreBackup(op, world, affected::contains, "area before chunk restore from #" + op.backupId, progress, cancel);
+					result.preRestoreBackupId = preRestoreBackup(op, world, affected::contains, Lang.get("cytrabackups.restore.comment.area", op.backupId), progress, cancel);
 					RestorePlan plan = restore.planChunks(manifest, op.backupId, world, op.dimensionFolder, sel, progress, cancel);
 					record = restore.execute(plan, world, progress, cancel);
 					result.message = summary(plan);
@@ -85,7 +86,7 @@ public final class PendingOperationRunner {
 				case ROLLBACK -> {
 					RestoreRecord target = (op.restoreId == null ? restore.latestUndoable() : restore.record(op.restoreId))
 						.orElseThrow(() -> new IOException("Nothing to roll back"));
-					result.preRestoreBackupId = preRestoreBackup(op, world, null, "before rolling back " + target.restoreId, progress, cancel);
+					result.preRestoreBackupId = preRestoreBackup(op, world, null, Lang.get("cytrabackups.restore.comment.rollback", target.restoreId), progress, cancel);
 					RestorePlan plan = restore.planRollback(target, world, progress, cancel);
 					record = restore.execute(plan, world, progress, cancel);
 					restore.markRolledBack(target, record.restoreId);
@@ -112,12 +113,12 @@ public final class PendingOperationRunner {
 		req.worldDir = world;
 		req.levelName = levelName;
 		req.trigger = Trigger.PRE_RESTORE;
-		req.comment = "Automatic backup " + comment;
+		req.comment = comment;
 		req.creator = op.requestedBy;
 		req.filter = filter;
 		req.excludedDirs = excludedDirs;
 		req.only = only;
-		req.scope = only == null ? "" : op.selection().describe() + " in " + op.dimension;
+		req.scope = only == null ? "" : Lang.get("cytrabackups.restore.scope", op.selection().describe(), op.dimension);
 		req.restoreTarget = op.type == PendingOperation.Type.ROLLBACK ? null : op.backupId;
 		req.progress = progress;
 		req.cancel = cancel;
@@ -144,9 +145,8 @@ public final class PendingOperationRunner {
 	}
 
 	private static String summary(RestorePlan plan) {
-		String s = "Restored " + plan.description() + ": " + plan.placeCount() + " file(s) replaced, " + plan.removeCount() + " removed, " + plan.unchanged() + " already identical";
-		if (!plan.notes().isEmpty()) s += ". " + String.join(". ", plan.notes());
-		return s;
+		String s = Lang.get("cytrabackups.restore.summary", plan.description(), plan.placeCount(), plan.removeCount(), plan.unchanged());
+		return plan.notes().isEmpty() ? s : s + " " + String.join(" ", plan.notes());
 	}
 
 	public static PendingOperation readPending(Path storage) throws IOException {

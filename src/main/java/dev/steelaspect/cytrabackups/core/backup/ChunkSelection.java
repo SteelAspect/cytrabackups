@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.backup;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -93,8 +94,8 @@ public final class ChunkSelection {
 	public String describe() {
 		StringBuilder sb = new StringBuilder();
 		for (Box b : boxes) {
-			if (!sb.isEmpty()) sb.append(", ");
-			sb.append("chunks ").append(b.minX()).append(',').append(b.minZ()).append(" to ").append(b.maxX()).append(',').append(b.maxZ());
+			if (!sb.isEmpty()) sb.append(Lang.raw("cytrabackups.selection.separator"));
+			sb.append(Lang.get("cytrabackups.selection.box", b.minX(), b.minZ(), b.maxX(), b.maxZ()));
 		}
 		return sb.toString();
 	}

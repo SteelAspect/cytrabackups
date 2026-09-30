@@ -2,6 +2,19 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.3.0
+
+**New command name, plainer chat, vanilla-style menu.**
+
+- The command is now `/cbackup`, with `/cb` as a short alias. `/backup` is no longer registered, so CytraBackups doesn't clash with other backup mods. The menu command is `/cbackupgui`.
+- Chat output uses one accent colour, grey for details, green for success and red for errors. Messages are shorter.
+- `/cbackup list` shows compact aligned rows (id, date, size, trigger) with [Restore] and [Info] buttons, and page navigation. Hover a date for the exact time.
+- Sizes use KB/MB/GB, and times are shown as "2h ago" with the exact time on hover.
+- The menu uses vanilla Minecraft widgets and layout throughout, and fits small windows at every GUI scale.
+- All text is in `assets/cytrabackups/lang/en_us.json`, so the mod can be translated. Players without the mod still see English.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/` (server, and client if you use the menu). Update command blocks, scripts or macros that use `/backup` to `/cbackup`.
+
 ## 1.2.0
 
 **A cleaner, coloured GUI.**

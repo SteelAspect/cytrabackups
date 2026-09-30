@@ -42,8 +42,8 @@ class ConfigSchemaTest {
 		assertEquals(ConfigSchema.Type.INT, m.get("permissions.defaultLevels.restore").type());
 		assertEquals("general", m.get("storagePath").section());
 		assertEquals("offsite", m.get("offsite.s3.bucket").section());
-		List<String> undocumented = entries.stream().filter(e -> e.comment().isBlank()).map(ConfigSchema.Entry::path).toList();
-		assertTrue(undocumented.isEmpty(), "every setting needs a comment for its GUI tooltip: " + undocumented);
+		List<String> undocumented = entries.stream().filter(e -> !Lang.has(e.helpKey()) || !Lang.has(e.nameKey())).map(ConfigSchema.Entry::path).toList();
+		assertTrue(undocumented.isEmpty(), "every setting needs a name and help text in the lang file: " + undocumented);
 	}
 
 	@Test
@@ -93,7 +93,7 @@ class ConfigSchemaTest {
 		ConfigSchema.Result r = ConfigSchema.apply(base, Map.of("schedule.intervalMinutes", "soon", "nope.nothing", "1"));
 		assertFalse(r.ok());
 		assertTrue(r.problems().stream().anyMatch(p -> p.contains("schedule.intervalMinutes") && p.contains("whole number")), r.problems().toString());
-		assertTrue(r.problems().stream().anyMatch(p -> p.contains("unknown setting nope.nothing")), r.problems().toString());
+		assertTrue(r.problems().stream().anyMatch(p -> p.contains("Unknown setting nope.nothing")), r.problems().toString());
 
 		r = ConfigSchema.apply(base, Map.of("schedule.intervalMinutes", "-5", "offsite.sftp.port", "70000", "compression.algorithm", "lz4",
 			"permissions.defaultLevels.restore", "9", "schedule.timesOfDay", "25:00"));

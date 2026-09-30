@@ -15,10 +15,6 @@ public final class CancelToken {
 		this.cancelled = true;
 	}
 
-	public boolean isCancelled() {
-		return cancelled;
-	}
-
 	public void check() {
 		if (cancelled) throw new CancellationException(reason);
 	}

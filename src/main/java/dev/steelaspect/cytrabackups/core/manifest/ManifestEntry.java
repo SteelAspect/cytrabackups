@@ -19,21 +19,9 @@ public sealed interface ManifestEntry permits FileEntry, RegionEntry {
 
 	void forEachBlob(Consumer<BlobRef> consumer);
 
-	default long storedBytes() {
-		long[] sum = {0};
-		forEachBlob(b -> sum[0] += b.storedLength());
-		return sum[0];
-	}
-
 	default String fileName() {
 		String p = path();
 		int i = p.lastIndexOf('/');
 		return i < 0 ? p : p.substring(i + 1);
-	}
-
-	default String parentPath() {
-		String p = path();
-		int i = p.lastIndexOf('/');
-		return i < 0 ? "" : p.substring(0, i);
 	}
 }

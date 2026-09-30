@@ -11,9 +11,10 @@ import static net.minecraft.commands.Commands.literal;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.brigadier.tree.LiteralCommandNode;
 import dev.steelaspect.cytrabackups.core.Formatting;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
 import dev.steelaspect.cytrabackups.core.backup.Trigger;
@@ -26,15 +27,26 @@ import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.DimensionArgument;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 
-/** The /backup command tree. Every feature is usable from a vanilla client via commands and clickable chat. */
+/** The /cbackup command tree (alias /cb). Every feature is usable from a vanilla client via commands and clickable chat. */
 public final class BackupCommands {
+	public static final String ROOT = "cbackup";
+	public static final String ALIAS = "cb";
 	private static final int PAGE_SIZE = 8;
+	private static final String[][] HELP = {
+		{"create [comment]", "create"}, {"list [page]", "list"}, {"info <id>", "info"}, {"diff <id1> <id2>", "diff"},
+		{"restore <id>", "restore"}, {"restore <id> radius <r>", "radius"}, {"restore <id> chunks <dim> <x1> <z1> <x2> <z2>", "chunks"},
+		{"restore <id> region <dim> <rx> <rz>", "region"}, {"rollback", "rollback"}, {"pending [cancel|apply]", "pending"},
+		{"comment <id> [text]", "comment"}, {"pin <id>", "pin"}, {"unpin <id>", "unpin"}, {"delete <id>", "delete"},
+		{"verify <id>", "verify"}, {"export <id>", "export"}, {"import <path> [comment]", "import"}, {"prune [dryrun]", "prune"},
+		{"gc", "gc"}, {"status", "status"}, {"cancel", "cancel"}, {"reload", "reload"}, {"offsite [status|sync]", "offsite"},
+	};
 
 	private BackupCommands() {
 	}
@@ -45,8 +57,8 @@ public final class BackupCommands {
 			List<BackupMeta> list = m.services().repo.list();
 			for (int i = list.size() - 1; i >= 0 && list.size() - i <= 50; i--) {
 				BackupMeta b = list.get(i);
-				builder.suggest(b.id, Component.literal(Formatting.dateTime(b.createdAt, m.zone()) + " " + b.trigger.displayName()
-					+ (b.comment.isBlank() ? "" : " - " + b.comment)));
+				builder.suggest(b.id, Component.literal(Formatting.dateTimeShort(b.createdAt, m.zone()) + " " + b.trigger.displayName()
+					+ (b.comment.isBlank() ? "" : " " + b.comment)));
 			}
 		}
 		return builder.buildFuture();
@@ -61,7 +73,7 @@ public final class BackupCommands {
 	}
 
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext ctx, Commands.CommandSelection selection) {
-		var root = literal("backup").requires(src -> BackupManager.getOrNull() != null && Perms.any(src));
+		var root = literal(ROOT).requires(src -> BackupManager.getOrNull() != null && Perms.any(src));
 
 		root.then(literal("create").requires(Perms.require(Perms.CREATE))
 			.executes(c -> create(c, ""))
@@ -83,7 +95,7 @@ public final class BackupCommands {
 		root.then(literal("comment").requires(Perms.require(Perms.COMMENT))
 			.then(id("id")
 				.executes(c -> {
-					manager().setComment(getInteger(c, "id"), "", Feedback.of(c.getSource())); // no text: clear it
+					manager().setComment(getInteger(c, "id"), "", Feedback.of(c.getSource()));
 					return 1;
 				})
 				.then(argument("text", greedyString()).executes(c -> {
@@ -159,24 +171,24 @@ public final class BackupCommands {
 			})));
 
 		root.then(literal("verify").requires(Perms.require(Perms.VERIFY))
-			.then(id("id").executes(c -> job(manager().verify(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Verifying"))));
+			.then(id("id").executes(c -> started(manager().verify(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c))));
 
 		root.then(literal("export").requires(Perms.require(Perms.EXPORT))
-			.then(id("id").executes(c -> job(manager().export(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Exporting"))));
+			.then(id("id").executes(c -> started(manager().export(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c))));
 
 		// "<path> [comment]": the first word is the path (quote it if it contains spaces), the rest is the comment.
 		root.then(literal("import").requires(Perms.require(Perms.ADMIN))
 			.then(argument("path_and_comment", greedyString()).executes(c -> {
 				String[] pc = splitPathAndComment(getString(c, "path_and_comment"));
-				return job(manager().importWorld(pc[0], pc[1], c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Importing");
+				return started(manager().importWorld(pc[0], pc[1], c.getSource().getTextName(), Feedback.of(c.getSource())), c);
 			})));
 
 		root.then(literal("prune").requires(Perms.require(Perms.PRUNE))
-			.executes(c -> job(manager().prune(false, c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Pruning"))
-			.then(literal("dryrun").executes(c -> job(manager().prune(true, c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Planning prune"))));
+			.executes(c -> started(manager().prune(false, c.getSource().getTextName(), Feedback.of(c.getSource())), c))
+			.then(literal("dryrun").executes(c -> started(manager().prune(true, c.getSource().getTextName(), Feedback.of(c.getSource())), c))));
 
 		root.then(literal("gc").requires(Perms.require(Perms.PRUNE))
-			.executes(c -> job(manager().garbageCollect(c.getSource().getTextName(), Feedback.of(c.getSource())), c, "Collecting garbage")));
+			.executes(c -> started(manager().garbageCollect(c.getSource().getTextName(), Feedback.of(c.getSource())), c)));
 
 		root.then(literal("status").requires(Perms.require(Perms.LIST)).executes(c -> {
 			manager().sendStatus(c.getSource());
@@ -185,7 +197,7 @@ public final class BackupCommands {
 
 		root.then(literal("cancel").requires(Perms.require(Perms.CANCEL)).executes(c -> {
 			if (!manager().cancel(c.getSource())) {
-				c.getSource().sendFailure(Msg.error("Nothing to cancel."));
+				c.getSource().sendFailure(Msg.error("cytrabackups.error.nothing_to_cancel"));
 				return 0;
 			}
 			return 1;
@@ -207,11 +219,16 @@ public final class BackupCommands {
 		root.then(literal("help").executes(c -> help(c.getSource())));
 		root.executes(c -> help(c.getSource()));
 
-		dispatcher.register(root);
+		LiteralCommandNode<CommandSourceStack> node = dispatcher.register(root);
+		dispatcher.register(literal(ALIAS).requires(node.getRequirement()).executes(c -> help(c.getSource())).redirect(node));
 	}
 
-	private static int job(boolean started, CommandContext<CommandSourceStack> c, String what) {
-		if (started) c.getSource().sendSuccess(() -> Msg.info(what + "... progress: /backup status"), false);
+	/** Reply for commands that start a background job; the job reports its own result. */
+	private static int started(boolean started, CommandContext<CommandSourceStack> c) {
+		if (started) {
+			c.getSource().sendSuccess(() -> Msg.info("cytrabackups.job.started")
+				.append(" ").append(Msg.button("cytrabackups.button.status", Msg.command("status"), "cytrabackups.hover.status")), false);
+		}
 		return started ? 1 : 0;
 	}
 
@@ -230,7 +247,7 @@ public final class BackupCommands {
 	private static int create(CommandContext<CommandSourceStack> c, String comment) {
 		CommandSourceStack src = c.getSource();
 		boolean ok = manager().createBackup(Trigger.MANUAL, comment, src.getTextName(), Feedback.of(src));
-		if (ok) src.sendSuccess(() -> Msg.info("Backup started..."), true);
+		if (ok) src.sendSuccess(() -> Msg.info("cytrabackups.backup.started"), true);
 		return ok ? 1 : 0;
 	}
 
@@ -240,7 +257,11 @@ public final class BackupCommands {
 	}
 
 	private static int offsiteStatus(CommandSourceStack src) {
-		for (String s : manager().offsiteStatus()) src.sendSuccess(() -> Msg.info(s), false);
+		List<Component> lines = manager().offsiteStatus();
+		for (int i = 0; i < lines.size(); i++) {
+			Component line = i == 0 ? Msg.info("cytrabackups.offsite.title").append(" ").append(lines.get(i)) : lines.get(i);
+			src.sendSuccess(() -> line, false);
+		}
 		return 1;
 	}
 
@@ -249,113 +270,115 @@ public final class BackupCommands {
 		List<BackupMeta> all = new ArrayList<>(m.services().repo.list());
 		all.sort(Comparator.comparingInt((BackupMeta b) -> b.id).reversed());
 		if (all.isEmpty()) {
-			src.sendSuccess(() -> Msg.info("No backups yet. ").append(Msg.run("Create one", "/backup create", "Run /backup create", ChatFormatting.GREEN)), false);
+			src.sendSuccess(() -> Msg.info("cytrabackups.list.empty").append(" ")
+				.append(Msg.button("cytrabackups.button.create", Msg.command("create"), "cytrabackups.hover.create")), false);
 			return 0;
 		}
 		int pages = (all.size() + PAGE_SIZE - 1) / PAGE_SIZE;
 		int p = Math.max(1, Math.min(page, pages));
-		long now = System.currentTimeMillis();
-		src.sendSuccess(() -> Msg.info("Backups (page " + p + "/" + pages + ", " + all.size() + " total, newest first):"), false);
+		List<BackupMeta> shown = all.subList((p - 1) * PAGE_SIZE, Math.min(all.size(), p * PAGE_SIZE));
+		int from = (p - 1) * PAGE_SIZE + 1, to = from + shown.size() - 1;
+		src.sendSuccess(() -> Msg.info("cytrabackups.list.header", from, to, all.size()), false);
+
 		boolean canRestore = Perms.check(src, Perms.RESTORE);
-		boolean canPin = Perms.check(src, Perms.PIN);
-		for (BackupMeta b : all.subList((p - 1) * PAGE_SIZE, Math.min(all.size(), p * PAGE_SIZE))) {
-			MutableComponent line = Component.literal(" ");
-			MutableComponent idPart = Msg.text("#" + b.id, ChatFormatting.AQUA, ChatFormatting.BOLD);
-			line.append(Msg.click(idPart, "/backup info " + b.id, Component.literal("Show details of #" + b.id)));
-			line.append(Msg.text(" " + Formatting.dateTime(b.createdAt, m.zone()) + " (" + Formatting.ago(b.createdAt, now) + ") ", ChatFormatting.WHITE));
-			line.append(Msg.text(b.trigger.displayName() + (b.partial ? " (area)" : ""), ChatFormatting.GRAY));
-			line.append(Msg.text(" " + Formatting.bytes(b.totalSize), ChatFormatting.WHITE));
-			line.append(Msg.text(" +" + Formatting.bytes(b.newStoredBytes), ChatFormatting.DARK_GRAY));
-			if (b.pinned) line.append(Msg.text(" ★pinned", ChatFormatting.GOLD));
-			if (!b.comment.isBlank()) line.append(Msg.text(" \"" + b.comment + "\"", ChatFormatting.ITALIC, ChatFormatting.GRAY));
-			line.append(" ");
-			if (canRestore) line.append(Msg.suggest("Restore", "/backup restore " + b.id, "Put /backup restore " + b.id + " into chat", ChatFormatting.RED)).append(" ");
-			if (canPin) {
-				line.append(b.pinned ? Msg.run("Unpin", "/backup unpin " + b.id, "Allow pruning", ChatFormatting.YELLOW)
-					: Msg.run("Pin", "/backup pin " + b.id, "Never prune this backup", ChatFormatting.YELLOW));
+		int idW = 0, sizeW = 0, trigW = 0;
+		for (BackupMeta b : shown) {
+			idW = Math.max(idW, ChatColumns.width("#" + b.id + "*"));
+			sizeW = Math.max(sizeW, ChatColumns.width(Formatting.bytes(b.totalSize)));
+			trigW = Math.max(trigW, ChatColumns.width(trigger(b)));
+		}
+		for (BackupMeta b : shown) {
+			MutableComponent id = Msg.hover(Component.literal("#" + b.id).withStyle(s -> s.withColor(Msg.ACCENT)
+				.withClickEvent(new ClickEvent.RunCommand(Msg.command("info", b.id)))), idHover(b));
+			String idText = "#" + b.id;
+			if (b.pinned) {
+				id.append(Msg.hover(Component.literal("*").withStyle(Msg.ACCENT), Msg.tr("cytrabackups.hover.pinned")));
+				idText += "*";
 			}
+			MutableComponent line = ChatColumns.cell(id, idText, idW, 8);
+			String date = Formatting.dateTimeShort(b.createdAt, m.zone());
+			line.append(ChatColumns.cell(Msg.hover(Component.literal(date), Component.literal(Formatting.ago(b.createdAt, System.currentTimeMillis())
+				+ ", " + Formatting.dateTime(b.createdAt, m.zone()))), date, ChatColumns.width(date), 8));
+			String size = Formatting.bytes(b.totalSize);
+			line.append(ChatColumns.cell(Component.literal(size), size, sizeW, 8));
+			line.append(ChatColumns.cell(Component.literal(trigger(b)).withStyle(ChatFormatting.GRAY), trigger(b), trigW, 8));
+			if (canRestore && !b.partial) {
+				line.append(Msg.dangerButton("cytrabackups.button.restore", Msg.command("restore", b.id), "cytrabackups.hover.restore", b.id)).append(" ");
+			}
+			line.append(Msg.button("cytrabackups.button.info", Msg.command("info", b.id), "cytrabackups.hover.info", b.id));
 			src.sendSuccess(() -> line, false);
 		}
 		if (pages > 1) {
-			MutableComponent nav = Component.literal(" ");
-			nav.append(p > 1 ? Msg.run("« Prev", "/backup list " + (p - 1), "Page " + (p - 1), ChatFormatting.AQUA) : Msg.text("[« Prev]", ChatFormatting.DARK_GRAY));
-			nav.append(Msg.text("  Page " + p + "/" + pages + "  ", ChatFormatting.GRAY));
-			nav.append(p < pages ? Msg.run("Next »", "/backup list " + (p + 1), "Page " + (p + 1), ChatFormatting.AQUA) : Msg.text("[Next »]", ChatFormatting.DARK_GRAY));
+			MutableComponent nav = p > 1 ? Msg.button("cytrabackups.button.prev", Msg.command("list", p - 1), "cytrabackups.hover.page", p - 1)
+				: Msg.inactiveButton("cytrabackups.button.prev");
+			nav.append(" ").append(Msg.detail("cytrabackups.list.page", p, pages)).append(" ");
+			nav.append(p < pages ? Msg.button("cytrabackups.button.next", Msg.command("list", p + 1), "cytrabackups.hover.page", p + 1)
+				: Msg.inactiveButton("cytrabackups.button.next"));
 			src.sendSuccess(() -> nav, false);
 		}
 		return all.size();
+	}
+
+	private static String trigger(BackupMeta b) {
+		return b.trigger.displayName() + (b.partial ? " " + Lang.get("cytrabackups.list.area") : "");
+	}
+
+	private static Component idHover(BackupMeta b) {
+		MutableComponent hover = Msg.tr("cytrabackups.hover.info", b.id);
+		if (!b.comment.isBlank()) hover = Component.literal(b.comment).append("\n").append(hover.withStyle(ChatFormatting.GRAY));
+		return hover;
 	}
 
 	static int info(CommandSourceStack src, int id) {
 		BackupManager m = manager();
 		Optional<BackupMeta> opt = m.services().repo.get(id);
 		if (opt.isEmpty()) {
-			src.sendFailure(Msg.error("No backup #" + id + "."));
+			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return 0;
 		}
 		BackupMeta b = opt.get();
-		long now = System.currentTimeMillis();
 		List<Component> lines = new ArrayList<>();
-		lines.add(Msg.info("Backup #" + b.id + " — " + Formatting.dateTime(b.createdAt, m.zone()) + " (" + Formatting.ago(b.createdAt, now) + ")"));
-		lines.add(Msg.text(" Trigger: " + b.trigger.displayName() + (b.partial ? " (area backup: " + b.scope + ")" : "") + " · Creator: "
-			+ (b.creator.isBlank() ? "-" : b.creator) + " · Pinned: " + (b.pinned ? "yes" : "no"), ChatFormatting.GRAY));
-		if (!b.comment.isBlank()) lines.add(Msg.text(" Comment: " + b.comment, ChatFormatting.GRAY));
-		if (b.restoreTarget != null) lines.add(Msg.text(" Taken automatically before restoring #" + b.restoreTarget, ChatFormatting.GRAY));
-		lines.add(Msg.text(" Size: " + Formatting.bytes(b.totalSize) + " in " + b.fileCount + " files, " + b.chunkCount + " chunks", ChatFormatting.GRAY));
-		lines.add(Msg.text(" New data stored: " + Formatting.bytes(b.newStoredBytes) + " (" + b.newBlobs + " new blobs, " + b.reusedFiles + "/" + b.fileCount
-			+ " files unchanged) · Dedup saved: " + Formatting.bytes(b.dedupSavedBytes()), ChatFormatting.GRAY));
-		lines.add(Msg.text(" Stored size if alone: " + Formatting.bytes(b.referencedStoredBytes) + " · Minecraft " + b.minecraftVersion + " · CytraBackups "
-			+ b.modVersion + " · took " + Formatting.duration(b.durationMillis), ChatFormatting.GRAY));
-		MutableComponent actions = Component.literal(" ");
-		if (Perms.check(src, Perms.RESTORE)) actions.append(Msg.run("Restore", "/backup restore " + id, "Restore the whole world (asks to confirm)", ChatFormatting.RED)).append(" ");
-		if (Perms.check(src, Perms.VERIFY)) actions.append(Msg.run("Verify", "/backup verify " + id, "Check every blob hash", ChatFormatting.GREEN)).append(" ");
-		if (Perms.check(src, Perms.EXPORT)) actions.append(Msg.run("Export", "/backup export " + id, "Build a standalone .zip", ChatFormatting.AQUA)).append(" ");
-		if (Perms.check(src, Perms.PIN)) {
-			actions.append(b.pinned ? Msg.run("Unpin", "/backup unpin " + id, "Allow pruning", ChatFormatting.YELLOW)
-				: Msg.run("Pin", "/backup pin " + id, "Never prune", ChatFormatting.YELLOW)).append(" ");
-		}
-		if (Perms.check(src, Perms.COMMENT)) actions.append(Msg.suggest("Comment", "/backup comment " + id + " ", "Edit the comment", ChatFormatting.WHITE)).append(" ");
-		List<BackupMeta> all = m.services().repo.list();
-		int idx = all.indexOf(b);
-		if (idx > 0) actions.append(Msg.run("Diff prev", "/backup diff " + all.get(idx - 1).id + " " + id, "Compare with #" + all.get(idx - 1).id, ChatFormatting.WHITE)).append(" ");
-		if (Perms.check(src, Perms.DELETE) && !b.pinned) actions.append(Msg.run("Delete", "/backup delete " + id, "Delete (asks to confirm)", ChatFormatting.DARK_RED));
-		lines.add(actions);
+		lines.add(Msg.info("cytrabackups.info.title", b.id, Msg.ago(b.createdAt, m.zone()), b.creator.isBlank() ? "-" : b.creator, b.trigger.displayName()));
+		if (!b.comment.isBlank()) lines.add(Msg.detail("cytrabackups.info.comment", Component.literal(b.comment).withStyle(ChatFormatting.WHITE)));
+		lines.add(Msg.detail("cytrabackups.info.size", Formatting.bytes(b.totalSize), Formatting.bytes(b.newStoredBytes), b.fileCount, b.chunkCount,
+			Formatting.duration(b.durationMillis)));
+		if (b.pinned) lines.add(Msg.detail("cytrabackups.info.pinned"));
+		if (b.partial) lines.add(Msg.detail("cytrabackups.info.area", b.scope));
+		if (b.restoreTarget != null) lines.add(Msg.detail("cytrabackups.info.pre_restore", b.restoreTarget));
+		lines.add(actions(src, m, b));
 		for (Component line : lines) src.sendSuccess(() -> line, false);
 		return 1;
 	}
 
-	private static int help(CommandSourceStack src) {
-		String[][] cmds = {
-			{"create [comment]", "Create a backup now"},
-			{"list [page]", "List backups (clickable)"},
-			{"info <id>", "Details of a backup"},
-			{"diff <id1> <id2>", "Changed files and chunks"},
-			{"restore <id>", "Restore the whole world (restart)"},
-			{"restore <id> chunks <dim> <x1> <z1> <x2> <z2>", "Restore chunks (live when safe)"},
-			{"restore <id> region <dim> <rx> <rz>", "Restore one region file area"},
-			{"restore <id> radius <r>", "Restore chunks around you"},
-			{"rollback", "Undo the last restore"},
-			{"pending [cancel|apply]", "Queued restore operation"},
-			{"verify <id>", "Check integrity without restoring"},
-			{"export <id>", "Standalone world .zip"},
-			{"import <path> [comment]", "Import a world folder or .zip (path relative to the server folder; quote paths with spaces)"},
-			{"comment <id> [text]", "Set a comment (no text clears it)"},
-			{"pin|unpin|delete <id>", "Manage backups"},
-			{"prune [dryrun]", "Apply retention rules"},
-			{"gc", "Free unreferenced data"},
-			{"status | cancel | reload", "Jobs and config"},
-			{"offsite [status|sync]", "Off-site copies"},
-		};
-		src.sendSuccess(() -> Msg.info("Commands:"), false);
-		for (String[] c : cmds) {
-			String first = "/backup " + c[0].split(" ")[0] + " ";
-			src.sendSuccess(() -> Msg.suggest("/backup " + c[0], first, c[1], ChatFormatting.AQUA).append(Msg.text(" " + c[1], ChatFormatting.GRAY)), false);
+	private static MutableComponent actions(CommandSourceStack src, BackupManager m, BackupMeta b) {
+		List<MutableComponent> buttons = new ArrayList<>();
+		if (Perms.check(src, Perms.RESTORE) && !b.partial) buttons.add(Msg.dangerButton("cytrabackups.button.restore", Msg.command("restore", b.id), "cytrabackups.hover.restore", b.id));
+		if (Perms.check(src, Perms.VERIFY)) buttons.add(Msg.button("cytrabackups.button.verify", Msg.command("verify", b.id), "cytrabackups.hover.verify"));
+		if (Perms.check(src, Perms.EXPORT) && !b.partial) buttons.add(Msg.button("cytrabackups.button.export", Msg.command("export", b.id), "cytrabackups.hover.export"));
+		if (Perms.check(src, Perms.PIN)) {
+			buttons.add(b.pinned ? Msg.button("cytrabackups.button.unpin", Msg.command("unpin", b.id), "cytrabackups.hover.unpin")
+				: Msg.button("cytrabackups.button.pin", Msg.command("pin", b.id), "cytrabackups.hover.pin"));
 		}
-		return 1;
+		if (Perms.check(src, Perms.COMMENT)) buttons.add(Msg.suggestButton("cytrabackups.button.comment", Msg.command("comment", b.id) + " ", "cytrabackups.hover.comment"));
+		List<BackupMeta> all = m.services().repo.list();
+		int idx = all.indexOf(b);
+		if (idx > 0) buttons.add(Msg.button("cytrabackups.button.diff", Msg.command("diff", all.get(idx - 1).id, b.id), "cytrabackups.hover.diff", all.get(idx - 1).id));
+		if (Perms.check(src, Perms.DELETE) && !b.pinned) buttons.add(Msg.dangerButton("cytrabackups.button.delete", Msg.command("delete", b.id), "cytrabackups.hover.delete"));
+		MutableComponent line = Component.empty();
+		for (int i = 0; i < buttons.size(); i++) line.append(i == 0 ? Component.empty() : Component.literal(" ")).append(buttons.get(i));
+		return line;
 	}
 
-	@SuppressWarnings("unused")
-	private static ServerPlayer player(CommandSourceStack src) throws CommandSyntaxException {
-		return src.getPlayerOrException();
+	private static int help(CommandSourceStack src) {
+		src.sendSuccess(() -> Msg.info("cytrabackups.help.title"), false);
+		for (String[] h : HELP) {
+			String usage = "/" + ROOT + " " + h[0];
+			String first = "/" + ROOT + " " + h[0].split(" ")[0] + " ";
+			MutableComponent line = Msg.hover(Component.literal(usage).withStyle(s -> s.withColor(Msg.ACCENT)
+				.withClickEvent(new ClickEvent.SuggestCommand(first))), Msg.tr("cytrabackups.hover.help"));
+			line.append(" ").append(Msg.detail("cytrabackups.help." + h[1]));
+			src.sendSuccess(() -> line, false);
+		}
+		return 1;
 	}
 }

@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.prune;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.LongHashSet;
@@ -25,7 +26,7 @@ public final class GarbageCollector {
 
 	public static Result collect(BackupRepository repo, Progress progress, CancelToken cancel) throws IOException {
 		long startedAt = System.currentTimeMillis();
-		progress.phase("Marking live blobs");
+		progress.phase(Lang.get("cytrabackups.phase.gc_mark"));
 		List<BackupMeta> backups = repo.list();
 		progress.addTotal(backups.size(), 0);
 		LongHashSet live = new LongHashSet(1 << 16);
@@ -42,7 +43,7 @@ public final class GarbageCollector {
 			progress.addDone(1, 0);
 		}
 
-		progress.phase("Sweeping unreferenced blobs");
+		progress.phase(Lang.get("cytrabackups.phase.gc_sweep"));
 		BlobStore store = repo.blobs();
 		long[] stats = new long[4]; // scanned, deleted, freed, live bytes
 		List<Hash> deleted = new ArrayList<>();

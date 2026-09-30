@@ -1,7 +1,6 @@
 package dev.steelaspect.cytrabackups.gametest;
 
 import dev.steelaspect.cytrabackups.client.BackupScreen;
-import dev.steelaspect.cytrabackups.client.ConfirmDialog;
 import dev.steelaspect.cytrabackups.client.ChunkSelectorScreen;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperation;
@@ -16,6 +15,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
 import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -59,8 +59,9 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 		ctx.getInput().setCursorPos(guiX * scale, guiY * scale);
 	}
 
+	/** Rows are 24 high and start below the tab bar (24) plus the list's top padding. */
 	private static void clickRow(ClientGameTestContext ctx, int row) {
-		cursor(ctx, 60, 34 + row * 12 + 6);
+		cursor(ctx, 60, 42 + row * 24);
 		ctx.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 		ctx.waitTicks(2);
 	}
@@ -77,12 +78,12 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			mc.options.enableVsync().set(false);
 			mc.options.renderDistance().set(2);
 		});
-		// "Allow Commands" makes the singleplayer host an operator, which /backup needs (as for any op command)
+		// "Allow Commands" makes the singleplayer host an operator, which /cbackup needs (as for any op command)
 		try (TestSingleplayerContext sp = ctx.worldBuilder().adjustSettings(s -> s.setAllowCommands(true)).create()) {
 			sp.getClientWorld().waitForChunksRender();
 			TestServerContext server = sp.getServer();
 
-			server.runCommand("backup create singleplayer-before");
+			server.runCommand("cbackup create singleplayer-before");
 			waitForIdle(ctx, server, 1);
 			beforeId = backups(server).get(0).id;
 			marker = onServer(server, s -> {
@@ -93,7 +94,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			});
 
 			// open the GUI through the client command, exactly as a player would type it
-			ctx.setScreen(() -> new ChatScreen("/backupgui", false));
+			ctx.setScreen(() -> new ChatScreen("/cbackupgui", false));
 			ctx.getInput().pressKey(GLFW.GLFW_KEY_ENTER);
 			ctx.waitForScreen(BackupScreen.class);
 			ctx.waitTicks(30);
@@ -116,7 +117,7 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(10);
 			int w = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledWidth());
 			int h = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledHeight());
-			int cx = 10 + ((w - 20) / 8 / 2) * 8 + 4, cy = 24 + ((h - 118) / 8 / 2) * 8 + 4;
+			int cx = 8 + ((w - 16) / 8 / 2) * 8 + 4, cy = 22 + ((h - 128) / 8 / 2) * 8 + 4; // centre of the player's chunk
 			cursor(ctx, cx - 8, cy - 8);
 			ctx.getInput().holdMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTick();
@@ -125,8 +126,8 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.getInput().releaseMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTicks(2);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
-			ctx.clickScreenButton("Restore selection...");
-			ctx.waitForScreen(ConfirmDialog.class); // the server's confirmation, shown as a dialog
+			ctx.clickScreenButton("Restore...");
+			ctx.waitForScreen(ConfirmScreen.class); // the server's confirmation, shown as a dialog
 			ctx.takeScreenshot("cytrabackups-4-confirm-chunks");
 			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "chunk restore queued", () -> onServer(server, s -> {
@@ -140,18 +141,18 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(20);
 			ctx.takeScreenshot("cytrabackups-5-chunk-restore-queued");
 			LOG.info("GUI chunk selector restore: queued (player is standing in the area)");
-			server.runCommand("backup pending cancel");
+			server.runCommand("cbackup pending cancel");
 			ctx.clickScreenButton("Back"); // the dialog returned to the chunk selector
 			ctx.waitForScreen(BackupScreen.class);
 
 			clickRow(ctx, 1);
 			ctx.clickScreenButton("Restore...");
-			ctx.waitForScreen(ConfirmDialog.class);
+			ctx.waitForScreen(ConfirmScreen.class);
 			ctx.clickScreenButton("Confirm");
 			waitUntil(ctx, "restore countdown", () -> onServer(server, s -> BackupManager.get().countdownLabel() != null));
 			ctx.waitTicks(20);
 			ctx.takeScreenshot("cytrabackups-6-restore-countdown");
-			server.runCommand("backup cancel");
+			server.runCommand("cbackup cancel");
 			waitUntil(ctx, "countdown cancelled", () -> onServer(server, s -> BackupManager.get().countdownLabel() == null));
 			LOG.info("GUI full restore: countdown started and cancelled");
 

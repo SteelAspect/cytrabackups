@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.backup;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Hash;
@@ -95,7 +96,7 @@ public final class BackupEngine {
 
 	public Result run(Request req) throws IOException {
 		Progress progress = req.progress;
-		progress.phase("Scanning files");
+		progress.phase(Lang.get("cytrabackups.phase.scanning"));
 		List<Candidate> candidates = walk(req);
 		req.cancel.check();
 
@@ -115,9 +116,9 @@ public final class BackupEngine {
 		}
 		req.beforeWrite.accept(estimate);
 
-		progress.phase("Hashing & storing");
+		progress.phase(Lang.get("cytrabackups.phase.storing"));
 		progress.addTotal(toRead.size(), estimate);
-		progress.detail(toRead.size() + " changed files, " + result.reusedFiles + " unchanged");
+		progress.detail(Lang.get("cytrabackups.phase.detail.changed", toRead.size(), result.reusedFiles));
 
 		Semaphore inFlight = new Semaphore(parallelism * 2);
 		List<Future<TaskOutput>> futures = new ArrayList<>(toRead.size());

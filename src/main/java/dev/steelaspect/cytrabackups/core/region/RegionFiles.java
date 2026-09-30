@@ -36,10 +36,6 @@ public final class RegionFiles {
 			return payload[0] & 0xFF;
 		}
 
-		public boolean isExternal() {
-			return (compressionType() & EXTERNAL_FLAG) != 0;
-		}
-
 		/** Chunk payloads with gzip/zlib/lz4 compression are already compressed. */
 		public boolean isCompressed() {
 			int t = compressionType() & 0x7F;

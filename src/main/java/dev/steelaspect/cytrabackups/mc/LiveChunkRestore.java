@@ -1,6 +1,7 @@
 package dev.steelaspect.cytrabackups.mc;
 
 import dev.steelaspect.cytrabackups.core.FileUtil;
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
 import dev.steelaspect.cytrabackups.core.manifest.ChunkRef;
 import dev.steelaspect.cytrabackups.core.manifest.FileEntry;
@@ -98,21 +99,19 @@ public final class LiveChunkRestore {
 
 	/** Server thread. Fast rejection before waiting for unloads. */
 	public static Safety quickCheck(ServerLevel level, ChunkSelection sel, int viewDistance) {
-		if (level.noSave) return Safety.no("autosave is disabled in this dimension (/save-off), so Minecraft will not unload the chunks");
+		if (level.noSave) return Safety.no(Lang.get("cytrabackups.live.no_save"));
 		int range = holderRange(viewDistance);
 		for (ServerPlayer p : level.players()) {
 			ChunkPos cp = p.chunkPosition();
 			int d = distanceToSelection(sel, cp.x, cp.z);
 			if (d <= range) {
-				return Safety.no("player " + p.getGameProfile().name() + " is " + d + " chunks from the area; Minecraft keeps chunks within " + range
-					+ " chunks of a player in memory (view distance " + viewDistance + " plus loading margin), so players must be at least "
-					+ (range + 1) + " chunks (" + (range + 1) * 16 + " blocks) away for a live restore");
+				return Safety.no(Lang.get("cytrabackups.live.player_near", p.getGameProfile().name(), d, range + 1, (range + 1) * 16));
 			}
 		}
 		LongSet forced = level.getForceLoadedChunks();
 		for (long f : forced) {
 			ChunkPos cp = new ChunkPos(f);
-			if (distanceToSelection(sel, cp.x, cp.z) <= 2) return Safety.no("chunk " + cp.x + "," + cp.z + " is force-loaded (/forceload)");
+			if (distanceToSelection(sel, cp.x, cp.z) <= 2) return Safety.no(Lang.get("cytrabackups.live.forceloaded", cp.x, cp.z));
 		}
 		return Safety.ok();
 	}
@@ -142,7 +141,7 @@ public final class LiveChunkRestore {
 			case REGION -> level.getChunkSource().chunkMap;
 			case ENTITIES -> {
 				if (level.entityManager.permanentStorage instanceof EntityStorage es) yield es.simpleRegionStorage;
-				throw new IllegalStateException("Entity storage was replaced by another mod; live entity restore unsupported");
+				throw new IllegalStateException(Lang.get("cytrabackups.live.entity_storage"));
 			}
 			case POI -> level.getPoiManager().simpleRegionStorage;
 		};

@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.backup;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.LongHashSet;
@@ -43,7 +44,7 @@ public final class Verifier {
 			return new Result(id, 0, 0, problems);
 		}
 		BlobStore blobs = repo.blobs();
-		progress.phase("Verifying backup #" + id);
+		progress.phase(Lang.get("cytrabackups.phase.verify", id));
 		LongHashSet scheduled = new LongHashSet(Math.max(16, m.size() * 4));
 		List<Runnable> tasks = new ArrayList<>();
 		AtomicLong checked = new AtomicLong();

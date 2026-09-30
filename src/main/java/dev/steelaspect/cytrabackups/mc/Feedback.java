@@ -11,20 +11,16 @@ import net.minecraft.server.level.ServerPlayer;
 public interface Feedback {
 	void send(Component message, boolean error);
 
-	default void info(String text) {
-		send(Msg.info(text), false);
+	default void info(String key, Object... args) {
+		send(Msg.info(key, args), false);
 	}
 
-	default void success(String text) {
-		send(Msg.success(text), false);
+	default void success(String key, Object... args) {
+		send(Msg.success(key, args), false);
 	}
 
-	default void warn(String text) {
-		send(Msg.warn(text), false);
-	}
-
-	default void error(String text) {
-		send(Msg.error(text), true);
+	default void error(String key, Object... args) {
+		send(Msg.error(key, args), true);
 	}
 
 	static Feedback of(CommandSourceStack source) {
@@ -51,7 +47,7 @@ public interface Feedback {
 		};
 	}
 
-	/** Sends to both: e.g. the requesting player and the console log. */
+	/** Sends to both, e.g. the requesting player and the console log. */
 	default Feedback and(Feedback other) {
 		Feedback self = this;
 		return (message, error) -> {

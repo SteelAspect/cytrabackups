@@ -30,7 +30,7 @@ public final class BlobStore {
 
 	private final Path root;
 	private final Path tmp;
-	private volatile Compression compression;
+	private final Compression compression;
 	private final boolean fsync;
 
 	public BlobStore(Path root, Path tmp, Compression compression, boolean fsync) throws IOException {
@@ -44,10 +44,6 @@ public final class BlobStore {
 
 	public Path root() {
 		return root;
-	}
-
-	public void setCompression(Compression compression) {
-		this.compression = compression;
 	}
 
 	public Path pathFor(Hash hash) {

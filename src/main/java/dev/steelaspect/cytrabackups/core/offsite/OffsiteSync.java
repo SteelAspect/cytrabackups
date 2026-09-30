@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.offsite;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Hash;
@@ -152,7 +153,7 @@ public final class OffsiteSync {
 					}
 					continue;
 				}
-				progress.phase("Uploading backup #" + id + " to " + target.describe());
+				progress.phase(Lang.get("cytrabackups.phase.upload", id, target.describe()));
 				Manifest m = repo.loadManifest(id);
 				List<BlobRef> todo = new ArrayList<>();
 				LongHashSet seen = new LongHashSet();
@@ -221,7 +222,7 @@ public final class OffsiteSync {
 			synchronized (this) {
 				keys = new ArrayList<>(queue.deleteKeys);
 			}
-			if (!keys.isEmpty()) progress.phase("Deleting " + keys.size() + " remote objects");
+			if (!keys.isEmpty()) progress.phase(Lang.get("cytrabackups.phase.remote_delete", keys.size()));
 			for (String key : keys) {
 				cancel.check();
 				target.delete(key);

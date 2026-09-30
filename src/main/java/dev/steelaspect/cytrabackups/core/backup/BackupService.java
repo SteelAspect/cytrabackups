@@ -1,5 +1,6 @@
 package dev.steelaspect.cytrabackups.core.backup;
 
+import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.LongHashSet;
 import dev.steelaspect.cytrabackups.core.Progress;
@@ -85,7 +86,7 @@ public final class BackupService {
 			return new Outcome(null, scan, true);
 		}
 
-		req.progress.phase("Writing manifest");
+		req.progress.phase(Lang.get("cytrabackups.phase.manifest"));
 		BackupMeta meta = new BackupMeta();
 		meta.id = repo.allocateId();
 		meta.createdAt = System.currentTimeMillis();

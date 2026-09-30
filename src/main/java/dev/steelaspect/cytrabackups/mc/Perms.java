@@ -42,7 +42,7 @@ public final class Perms {
 		return source -> check(source, node);
 	}
 
-	/** Root /backup node: visible to anyone holding at least one CytraBackups permission. */
+	/** Root /cbackup node: visible to anyone holding at least one CytraBackups permission. */
 	public static boolean any(CommandSourceStack source) {
 		for (String n : new String[]{LIST, CREATE, RESTORE, ADMIN, PRUNE, DELETE, VERIFY, EXPORT, PIN, CANCEL, COMMENT}) {
 			if (check(source, n)) return true;

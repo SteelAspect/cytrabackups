@@ -76,7 +76,7 @@ public final class DiscordWebhook implements AutoCloseable {
 		String target = url;
 		if (target == null || target.isBlank() || text.isBlank()) return;
 		JsonObject body = new JsonObject();
-		body.addProperty("username", username);
+		body.addProperty("username", username == null || username.isBlank() ? "CytraBackups" : username);
 		body.addProperty("content", truncate(text, 1900));
 		post(target, body.toString());
 	}

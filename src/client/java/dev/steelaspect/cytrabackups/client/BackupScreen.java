@@ -362,7 +362,7 @@ public final class BackupScreen extends Screen {
 		private final StringWidget details = add(new StringWidget(Component.empty(), font));
 		private final StringWidget note = add(new StringWidget(Component.empty(), font));
 		private final List<Button> actions = new ArrayList<>();
-		private Button pin;
+		private Button restore, pin;
 
 		BackupsTab() {
 			super("cytrabackups.gui.tab.backups");
@@ -371,8 +371,8 @@ public final class BackupScreen extends Screen {
 			BooleanSupplier sel = () -> selected() != null;
 			action("cytrabackups.gui.info", "cytrabackups.gui.info.tooltip", () -> runOnSelected("info"), () -> sel.getAsBoolean() && can(BackupListPayload.CAN_LIST));
 			action("cytrabackups.gui.compare", "cytrabackups.gui.compare.tooltip", BackupScreen.this::compare, () -> sel.getAsBoolean() && can(BackupListPayload.CAN_LIST));
-			action("cytrabackups.gui.restore", "cytrabackups.gui.restore.tooltip", () -> runOnSelected("restore"),
-				() -> sel.getAsBoolean() && !selected().partial() && can(BackupListPayload.CAN_RESTORE));
+			restore = action("cytrabackups.gui.restore", "cytrabackups.gui.restore.tooltip", () -> runOnSelected("restore"),
+				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_RESTORE));
 			action("cytrabackups.gui.area", "cytrabackups.gui.area.tooltip", () -> minecraft.setScreen(new ChunkSelectorScreen(BackupScreen.this, selectedId)),
 				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_RESTORE));
 			action("cytrabackups.gui.verify", "cytrabackups.gui.verify.tooltip", () -> runOnSelected("verify"), () -> sel.getAsBoolean() && can(BackupListPayload.CAN_VERIFY));
@@ -448,6 +448,7 @@ public final class BackupScreen extends Screen {
 					: Component.literal(e.comment()).withStyle(ChatFormatting.GRAY));
 			}
 			pin.setMessage(Component.translatable(e != null && e.pinned() ? "cytrabackups.gui.unpin" : "cytrabackups.gui.pin"));
+			restore.setTooltip(Tooltip.create(Component.translatable(e != null && e.partial() ? "cytrabackups.gui.restore.area_tooltip" : "cytrabackups.gui.restore.tooltip")));
 		}
 	}
 

@@ -100,6 +100,18 @@ class DiscordWebhookTest {
 	}
 
 	@Test
+	void blankUsernameFallsBackForMentions() {
+		try (DiscordWebhook hook = new DiscordWebhook(url(), "", e -> {
+		})) {
+			hook.sendText("@here backup failed");
+		}
+		assertEquals(1, bodies.size());
+		JsonObject body = JsonParser.parseString(bodies.get(0)).getAsJsonObject();
+		assertEquals("CytraBackups", body.get("username").getAsString(), "Discord rejects an empty username");
+		assertEquals("@here backup failed", body.get("content").getAsString());
+	}
+
+	@Test
 	void blankUrlSendsNothing() {
 		try (DiscordWebhook hook = new DiscordWebhook("", "x", e -> {
 		})) {

@@ -42,6 +42,8 @@ public final class BackupService {
 		public Predicate<String> only;
 		public String scope = "";
 		public Integer restoreTarget;
+		public String areaDimension;
+		public List<ChunkSelection.Box> areaBoxes;
 		/** Skip committing if content equals the previous backup (ignoring {@link #unchangedIgnore}). */
 		public boolean skipIfUnchanged;
 		public Predicate<String> unchangedIgnore = p -> false;
@@ -97,6 +99,8 @@ public final class BackupService {
 		meta.scope = req.scope == null ? "" : req.scope;
 		meta.levelName = req.levelName;
 		meta.restoreTarget = req.restoreTarget;
+		meta.areaDimension = req.areaDimension;
+		meta.areaBoxes = req.areaBoxes == null ? null : List.copyOf(req.areaBoxes);
 		meta.totalSize = scan.manifest.totalSize();
 		meta.fileCount = scan.manifest.size();
 		meta.chunkCount = scan.manifest.chunkCount();

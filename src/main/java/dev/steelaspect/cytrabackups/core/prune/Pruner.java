@@ -47,6 +47,11 @@ public final class Pruner {
 	}
 
 	public List<Decision> plan(List<BackupMeta> backups, long now, BlobLister lister) throws IOException {
+		return plan(backups, now, lister, Set.of());
+	}
+
+	/** {@code needed}: ids that must survive whatever the rules say, e.g. the backup a queued restore is waiting for. */
+	public List<Decision> plan(List<BackupMeta> backups, long now, BlobLister lister, Set<Integer> needed) throws IOException {
 		List<BackupMeta> newestFirst = new ArrayList<>(backups);
 		newestFirst.sort(Comparator.comparingLong((BackupMeta b) -> b.createdAt).thenComparingInt(b -> b.id).reversed());
 
@@ -59,6 +64,10 @@ public final class Pruner {
 		for (BackupMeta b : newestFirst) {
 			if (b.pinned) {
 				keepReasons.get(b.id).add(Lang.get("cytrabackups.prune.reason.pinned"));
+				protectedIds.add(b.id);
+			}
+			if (needed.contains(b.id)) {
+				keepReasons.get(b.id).add(Lang.get("cytrabackups.prune.reason.queued"));
 				protectedIds.add(b.id);
 			}
 		}

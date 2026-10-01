@@ -118,6 +118,22 @@ public class CytraBackupsGameTest {
 				forceLoad(level, false);
 				msgs.lines.forEach(l -> org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("[job message] {}", l));
 				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("On-disk full restore / restore / rollback: {}", diskResult.get());
+				// 5. undo: the area backup taken before the live restore records its area, so restoring it brings the emerald block back
+				BackupMeta pre = m.services().repo.latest().orElseThrow();
+				helper.assertTrue(pre.partial && pre.areaBoxes != null && pre.areaBoxes.size() == 1 && pre.areaBoxes.get(0).contains(CX, CZ)
+					&& "minecraft:overworld".equals(pre.areaDimension), "the pre-restore area backup records its area: " + pre.areaDimension + " " + pre.areaBoxes);
+				msgs.lines.clear();
+				m.startChunkRestore(pre.id, level, new ChunkSelection(pre.areaBoxes), "gametest", msgs);
+			})
+			.thenWaitUntil(() -> helper.assertTrue(m.currentJob() == null && (msgs.last().contains("Restored ") || msgs.last().contains("could not be restored now")
+				|| msgs.last().startsWith("ERROR")), "waiting for the undo: " + msgs.last()))
+			.thenExecute(() -> {
+				helper.assertTrue(msgs.last().contains("Restored 1 chunk in"), "the undo should have been applied live: " + msgs.last());
+				forceLoad(level, true);
+				Block b = level.getBlockState(P).getBlock();
+				helper.assertTrue(b == Blocks.EMERALD_BLOCK, "the undo should bring back the emerald block, found " + b);
+				forceLoad(level, false);
+				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("Undo of the live area restore via its area backup: OK ({})", msgs.last());
 			})
 			.thenSucceed();
 	}

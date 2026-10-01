@@ -614,5 +614,15 @@
 	"cytrabackups.gui.area.selection.one": "Chunk %s, %s (blocks %6$s, %7$s to %8$s, %9$s)",
 	"cytrabackups.gui.area.no_map": "No map for %s. Type chunk coordinates below.",
 	"cytrabackups.gui.area.bad_coords": "Enter four chunk coordinates.",
-	"cytrabackups.gui.area.nothing_selected": "Select chunks first."
+	"cytrabackups.gui.area.nothing_selected": "Select chunks first.",
+	"cytrabackups.prune.reason.queued": "a queued restore needs it",
+	"cytrabackups.hover.restore_area": "Restore the area saved in backup #%s. Asks to confirm first.",
+	"cytrabackups.button.undo": "Undo",
+	"cytrabackups.hover.undo_area": "Put the area back as it was before this restore (restores backup #%s).",
+	"cytrabackups.restore.partial.question": "Restore the files saved in area backup %s",
+	"cytrabackups.restore.partial.details": "Only the files in this area backup are written back; nothing else changes.",
+	"cytrabackups.error.no_dimension": "Dimension %s is not loaded.",
+	"cytrabackups.error.reload_upload": "An off-site upload is running. Reload when it has finished.",
+	"cytrabackups.error.save_upload": "An off-site upload is running. Save the settings again when it has finished.",
+	"cytrabackups.gui.restore.area_tooltip": "Restore the area saved in this backup. Done now when nobody is near it, otherwise at the next restart."
 }

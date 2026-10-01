@@ -2,6 +2,17 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.3.1
+
+**Fixes from a full code review.**
+
+- A crash during a restore whose recycle bin is on another disk could put a half-copied file back over an intact world file. The recovery now keeps the intact file.
+- Reloading or saving settings while an off-site upload runs is refused instead of corrupting the upload queue.
+- Area backups (the automatic "before restoring" backups of a live area restore) can be restored again: [Restore] on one restores just that area, live when nobody is near. Live area restores now end with an [Undo] button. Older area backups without area info restore their files at the next restart.
+- Prune no longer deletes the backup a queued restore is waiting for.
+- The Discord failure mention is sent with a username even when `discord.username` is empty.
+- Deletes are logged to the server console like the other destructive actions.
+
 ## 1.3.0
 
 **New command name, plainer chat, vanilla-style menu.**

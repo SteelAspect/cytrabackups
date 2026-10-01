@@ -6,6 +6,7 @@ import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.RateLimiter;
+import dev.steelaspect.cytrabackups.core.compress.Compression;
 import dev.steelaspect.cytrabackups.core.manifest.ChunkRef;
 import dev.steelaspect.cytrabackups.core.manifest.FileEntry;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
@@ -49,6 +50,7 @@ public final class BackupEngine {
 	private final BackupSettings settings;
 	private final RateLimiter rateLimiter;
 	private final ThreadLocal<byte[]> buffers;
+	private final Compression.ChunkEncoder chunkEncoder;
 
 	public BackupEngine(BlobStore blobs, ExecutorService workers, int parallelism, BackupSettings settings) {
 		this.blobs = blobs;
@@ -57,6 +59,12 @@ public final class BackupEngine {
 		this.settings = settings;
 		this.rateLimiter = new RateLimiter(settings.maxReadBytesPerSecond());
 		this.buffers = ThreadLocal.withInitial(() -> new byte[settings.pieceSize()]);
+		this.chunkEncoder = settings.unpackChunks() ? blobs.compression().chunkEncoder(settings.chunkLevel()) : null;
+	}
+
+	/** Whether chunks are unpacked and recompressed with the dictionary (needs the native zstd). */
+	public boolean unpacksChunks() {
+		return chunkEncoder != null && Compression.nativeZstd();
 	}
 
 	/** Inputs for one scan. */
@@ -166,7 +174,9 @@ public final class BackupEngine {
 
 	private boolean typeMatches(ManifestEntry prev, String path) {
 		boolean region = settings.chunkDedup() && isRegionPath(path);
-		return region == (prev instanceof RegionEntry);
+		if (region != (prev instanceof RegionEntry)) return false;
+		// a change of the unpack setting re-reads every region once, so the whole store ends up in the new form
+		return !(prev instanceof RegionEntry r) || r.unpacked() == unpacksChunks();
 	}
 
 	public static boolean isRegionPath(String path) {
@@ -314,11 +324,19 @@ public final class BackupEngine {
 		long[] counters = new long[2]; // newBytes, readBytes
 		try (FileChannel ch = FileChannel.open(c.file, StandardOpenOption.READ)) {
 			rateLimiter.acquire(RegionFiles.HEADER);
+			boolean unpack = unpacksChunks();
 			RegionFiles.read(ch, slot -> {
 				req.cancel.check();
 				rateLimiter.acquire(slot.payload().length);
-				BlobStore.PutResult put = blobs.put(slot.payload(), 0, slot.payload().length, slot.isCompressed());
-				chunks.add(new ChunkRef(slot.index(), slot.timestamp(), put.ref()));
+				BlobStore.PutResult put;
+				int format = ChunkRef.RAW;
+				if (unpack && RegionFiles.canUnpack(slot.compressionType())) {
+					put = blobs.putChunk(RegionFiles.unpack(slot.payload()), chunkEncoder);
+					format = slot.compressionType();
+				} else {
+					put = blobs.put(slot.payload(), 0, slot.payload().length, slot.isCompressed());
+				}
+				chunks.add(new ChunkRef(slot.index(), slot.timestamp(), put.ref(), format));
 				if (put.isNew()) {
 					fresh.add(put.ref().hash());
 					counters[0] += put.ref().storedLength();
@@ -326,6 +344,6 @@ public final class BackupEngine {
 				counters[1] += slot.payload().length;
 			});
 		}
-		return new TaskOutput(RegionEntry.create(c.path, size, mtime, chunks), fresh, counters[0], counters[1] + RegionFiles.HEADER);
+		return new TaskOutput(RegionEntry.create(c.path, size, mtime, chunks, unpacksChunks()), fresh, counters[0], counters[1] + RegionFiles.HEADER);
 	}
 }

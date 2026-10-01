@@ -30,17 +30,28 @@ public final class ContentHasher {
 		return Hash.finish(md);
 	}
 
-	/** Logical region hash (see {@link RegionEntry#logicalHash}); throws for malformed region files. */
+	/** Logical region hash over raw payloads (see {@link RegionEntry#logicalHash}); throws for malformed region files. */
 	public static Hash region(Path file) throws IOException {
+		return region(file, false);
+	}
+
+	/**
+	 * Logical region hash the way the backup engine computes it: over raw payloads, or with {@code unpacked} over the
+	 * chunk NBT where the compression type allows it (what an unpacked manifest entry records).
+	 */
+	public static Hash region(Path file, boolean unpacked) throws IOException {
 		List<ChunkRef> refs = new ArrayList<>();
 		try (FileChannel ch = FileChannel.open(file, StandardOpenOption.READ)) {
-			RegionFiles.read(ch, slot -> refs.add(new ChunkRef(slot.index(), slot.timestamp(),
-				new BlobRef(Hash.compute(slot.payload()), slot.payload().length, 0))));
+			RegionFiles.read(ch, slot -> {
+				byte[] content = unpacked && RegionFiles.canUnpack(slot.compressionType()) ? RegionFiles.unpack(slot.payload()) : slot.payload();
+				int format = content == slot.payload() ? ChunkRef.RAW : slot.compressionType();
+				refs.add(new ChunkRef(slot.index(), slot.timestamp(), new BlobRef(Hash.compute(content), content.length, 0), format));
+			});
 		}
 		return RegionEntry.logicalHash(refs);
 	}
 
-	public static Hash of(Path file, boolean region) throws IOException {
-		return region ? region(file) : plain(file);
+	public static Hash of(Path file, boolean region, boolean unpacked) throws IOException {
+		return region ? region(file, unpacked) : plain(file);
 	}
 }

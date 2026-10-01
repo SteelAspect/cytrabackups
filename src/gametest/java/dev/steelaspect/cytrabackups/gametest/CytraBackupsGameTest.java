@@ -3,6 +3,10 @@ package dev.steelaspect.cytrabackups.gametest;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
 import dev.steelaspect.cytrabackups.core.backup.Trigger;
+import dev.steelaspect.cytrabackups.core.config.CytraConfig;
+import dev.steelaspect.cytrabackups.core.manifest.ChunkRef;
+import dev.steelaspect.cytrabackups.core.manifest.ManifestEntry;
+import dev.steelaspect.cytrabackups.core.manifest.RegionEntry;
 import dev.steelaspect.cytrabackups.core.region.RegionFiles;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperation;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperationRunner;
@@ -72,8 +76,18 @@ public class CytraBackupsGameTest {
 		int[] ids = new int[2];
 		AtomicReference<String> diskResult = new AtomicReference<>();
 		Path scratch = m.services().storage.resolve("gametest-world");
+		java.util.concurrent.atomic.AtomicBoolean reloaded = new java.util.concurrent.atomic.AtomicBoolean();
 
 		helper.startSequence()
+			// 0. store chunks recompressed (native zstd + dictionary) through the same save-and-reload path the GUI uses
+			.thenExecute(() -> {
+				helper.assertTrue(dev.steelaspect.cytrabackups.core.compress.Compression.nativeZstd(), "native zstd should load on the test machine");
+				CytraConfig cfg = m.config();
+				cfg.compression.recompressChunks = true;
+				m.saveConfigAndReload(cfg, msgs, () -> reloaded.set(true));
+			})
+			.thenWaitUntil(() -> helper.assertTrue(reloaded.get(), "waiting for the config reload: " + msgs.last()))
+			.thenExecute(() -> helper.assertTrue(m.config().compression.recompressChunks && m.services().engine.unpacksChunks(), "recompression should be active: " + msgs.last()))
 			// 1. gold block -> backup A
 			.thenExecute(() -> {
 				forceLoad(level, true);
@@ -83,6 +97,15 @@ public class CytraBackupsGameTest {
 			.thenWaitUntil(() -> {
 				helper.assertTrue(m.currentJob() == null && latestWithComment(m, "gametest-A") != null, "waiting for backup A: " + msgs.last());
 				ids[0] = latestWithComment(m, "gametest-A").id;
+			})
+			.thenExecute(() -> {
+				try {
+					ManifestEntry e = m.services().repo.loadManifest(ids[0]).get("region/" + RegionFiles.regionFileName(CX >> 5, CZ >> 5));
+					helper.assertTrue(e instanceof RegionEntry r && r.unpacked() && r.chunks().stream().anyMatch(ChunkRef::unpacked),
+						"backup A should store the region's chunks as recompressed NBT: " + e);
+				} catch (java.io.IOException ex) {
+					throw new RuntimeException(ex);
+				}
 			})
 			// 2. modify the world: diamond block -> backup B
 			.thenExecute(() -> {

@@ -65,7 +65,7 @@ public final class Services implements AutoCloseable {
 
 	public static BackupSettings settings(CytraConfig c) {
 		return new BackupSettings(c.chunkDedup, c.trustModificationTime, BackupSettings.DEFAULT_PIECE_SIZE,
-			Math.max(0, c.maxReadMiBPerSecond) * 1024L * 1024L, 3);
+			Math.max(0, c.maxReadMiBPerSecond) * 1024L * 1024L, 3).withUnpackChunks(c.compression.recompressChunks, c.compression.chunkLevel);
 	}
 
 	public PathFilter filter() {

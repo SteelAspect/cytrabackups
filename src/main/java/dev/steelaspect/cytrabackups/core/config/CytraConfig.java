@@ -31,6 +31,8 @@ public final class CytraConfig {
 		public String algorithm = "zstd";
 		public int level = 3;
 		public int minSavingsPercent = 3;
+		public boolean recompressChunks = false;
+		public int chunkLevel = 15;
 	}
 
 	public static final class ScheduleSettings {

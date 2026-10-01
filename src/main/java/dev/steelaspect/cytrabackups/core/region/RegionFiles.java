@@ -43,6 +43,41 @@ public final class RegionFiles {
 		}
 	}
 
+	/** Compression types whose chunks can be unpacked without Minecraft classes: gzip, zlib, none. */
+	public static boolean canUnpack(int compressionType) {
+		return compressionType == 1 || compressionType == 2 || compressionType == 3;
+	}
+
+	/** The NBT inside a chunk payload of type 1, 2 or 3 (the compression byte is {@code payload[0]}). */
+	public static byte[] unpack(byte[] payload) throws IOException {
+		int type = payload[0] & 0xFF;
+		java.io.InputStream raw = new java.io.ByteArrayInputStream(payload, 1, payload.length - 1);
+		java.io.InputStream in = switch (type) {
+			case 1 -> new java.util.zip.GZIPInputStream(raw, 1 << 16);
+			case 2 -> new java.util.zip.InflaterInputStream(raw, new java.util.zip.Inflater(), 1 << 16);
+			case 3 -> raw;
+			default -> throw new IOException("chunk compression type " + type + " cannot be unpacked");
+		};
+		try (in) {
+			return in.readAllBytes();
+		}
+	}
+
+	/** A chunk payload ({@code type} byte then the NBT compressed the way Minecraft does it) for restoring. */
+	public static byte[] pack(int type, byte[] nbt) throws IOException {
+		java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(nbt.length / 4 + 16);
+		bos.write(type);
+		try (java.io.OutputStream out = switch (type) {
+			case 1 -> new java.util.zip.GZIPOutputStream(bos, 1 << 16);
+			case 2 -> new java.util.zip.DeflaterOutputStream(bos, new java.util.zip.Deflater(), 1 << 16);
+			case 3 -> bos;
+			default -> throw new IOException("chunk compression type " + type + " cannot be packed");
+		}) {
+			out.write(nbt);
+		}
+		return bos.toByteArray();
+	}
+
 	public static final class RegionFormatException extends IOException {
 		public RegionFormatException(String message) {
 			super(message);

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import dev.steelaspect.cytrabackups.core.compress.Codec;
 import dev.steelaspect.cytrabackups.core.compress.Compression;
@@ -59,6 +60,30 @@ class CompressionTest {
 		assertEquals(Codec.NONE, new Compression(Codec.ZSTD, 3, 0.03).encode(gzip, 0, gzip.length, false).codec());
 		byte[] plain = text(10_000);
 		assertEquals(Codec.NONE, new Compression(Codec.ZSTD, 3, 0.03).encode(plain, 0, plain.length, true).codec(), "caller hint wins");
+	}
+
+	@Test
+	void nativeZstdHonoursLevels() throws IOException {
+		assumeTrue(Compression.nativeZstd(), "native zstd not available on this platform");
+		byte[] raw = text(300_000);
+		Compression.Encoded fast = new Compression(Codec.ZSTD, 1, 0.03).encode(raw, 0, raw.length, false);
+		Compression.Encoded best = new Compression(Codec.ZSTD, 19, 0.03).encode(raw, 0, raw.length, false);
+		assertTrue(best.length() <= fast.length(), "level 19 should not be larger than level 1");
+		assertArrayEquals(raw, Compression.decode(Codec.ZSTD, best.data(), 0, best.length(), raw.length));
+	}
+
+	@Test
+	void chunkEncoderUsesDictionaryAndRoundTrips() throws IOException {
+		assumeTrue(Compression.nativeZstd(), "native zstd not available on this platform");
+		byte[] nbt = TestWorlds.chunkNbt(42L, 20_000);
+		Compression.ChunkEncoder enc = new Compression(Codec.ZSTD, 3, 0.03).chunkEncoder(15);
+		Compression.Encoded e = enc.encode(nbt, 0, nbt.length);
+		assertEquals(Codec.ZSTD_DICT, e.codec());
+		assertTrue(e.length() < nbt.length / 2, "chunk-like data should compress");
+		assertArrayEquals(nbt, Compression.decode(Codec.ZSTD_DICT, e.data(), 0, e.length(), nbt.length));
+		Compression.Encoded plain = new Compression(Codec.ZSTD, 15, 0.03).encode(nbt, 0, nbt.length, false);
+		assertThrows(IOException.class, () -> Compression.decode(Codec.ZSTD, e.data(), 0, e.length(), nbt.length), "dictionary frames are not plain frames");
+		assertArrayEquals(nbt, Compression.decode(Codec.ZSTD, plain.data(), 0, plain.length(), nbt.length));
 	}
 
 	@Test

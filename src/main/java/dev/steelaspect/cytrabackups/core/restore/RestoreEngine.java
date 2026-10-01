@@ -15,6 +15,7 @@ import dev.steelaspect.cytrabackups.core.manifest.FileEntry;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.manifest.ManifestEntry;
 import dev.steelaspect.cytrabackups.core.manifest.RegionEntry;
+import dev.steelaspect.cytrabackups.core.region.ChunkPayloads;
 import dev.steelaspect.cytrabackups.core.region.RegionFiles;
 import dev.steelaspect.cytrabackups.core.store.BlobRef;
 import dev.steelaspect.cytrabackups.core.store.BlobStore;
@@ -111,13 +112,15 @@ public final class RestoreEngine {
 			tasks.add(() -> {
 				if (existing == null) return new RestorePlan.Op(e.path(), RestorePlan.Action.PLACE, new RestorePlan.FromEntry(e), null, false);
 				boolean region = e instanceof RegionEntry;
-				Hash cur = currentHashFor(existing, e, region);
+				boolean unpacked = e instanceof RegionEntry r && r.unpacked();
+				Hash cur = currentHashFor(existing, e, region, unpacked);
 				if (cur != null && cur.equals(e.contentHash())) return null;
 				if (cur == null) { // unreadable as region: hash as plain for the recycle record
 					cur = ContentHasher.plain(existing);
 					region = false;
+					unpacked = false;
 				}
-				return new RestorePlan.Op(e.path(), RestorePlan.Action.PLACE, new RestorePlan.FromEntry(e), cur, region);
+				return new RestorePlan.Op(e.path(), RestorePlan.Action.PLACE, new RestorePlan.FromEntry(e), cur, region, unpacked);
 			});
 		}
 		if (skippedByFilter[0] > 0) notes.add(Lang.get("cytrabackups.restore.note.excluded", skippedByFilter[0]));
@@ -126,7 +129,7 @@ public final class RestoreEngine {
 				if (manifest.get(c.getKey()) != null) continue;
 				tasks.add(() -> {
 					boolean region = BackupEngine.isRegionPath(c.getKey());
-					Hash h = safeHash(c.getValue(), region);
+					Hash h = safeHash(c.getValue(), region, false);
 					if (h == null) {
 						h = ContentHasher.plain(c.getValue());
 						region = false;
@@ -142,18 +145,18 @@ public final class RestoreEngine {
 		return new RestorePlan(RestoreRecord.Kind.FULL, backupId, desc, ops, unchanged, notes);
 	}
 
-	private Hash currentHashFor(Path existing, ManifestEntry e, boolean region) throws IOException {
+	private Hash currentHashFor(Path existing, ManifestEntry e, boolean region, boolean unpacked) throws IOException {
 		if (trustMtime) {
 			BasicFileAttributes a = Files.readAttributes(existing, BasicFileAttributes.class);
 			if (a.size() == e.size() && a.lastModifiedTime().toMillis() == e.mtime()) return e.contentHash();
 		}
-		return safeHash(existing, region);
+		return safeHash(existing, region, unpacked);
 	}
 
-	private static Hash safeHash(Path file, boolean region) throws IOException {
+	private static Hash safeHash(Path file, boolean region, boolean unpacked) throws IOException {
 		if (!region) return ContentHasher.plain(file);
 		try {
-			return ContentHasher.region(file);
+			return ContentHasher.region(file, unpacked);
 		} catch (RegionFiles.RegionFormatException e) {
 			return null;
 		}
@@ -225,7 +228,7 @@ public final class RestoreEngine {
 			boolean curRegion = false;
 			if (exists) {
 				curRegion = BackupEngine.isRegionPath(item.path);
-				cur = safeHash(existing, curRegion);
+				cur = safeHash(existing, curRegion, false);
 				if (cur == null) {
 					cur = ContentHasher.plain(existing);
 					curRegion = false;
@@ -235,7 +238,7 @@ public final class RestoreEngine {
 				Path src = FileUtil.resolveSafe(recycle, item.path);
 				if (!Files.isRegularFile(src)) throw new IOException("Recycled file missing: " + item.path);
 				ops.add(new RestorePlan.Op(item.path, RestorePlan.Action.PLACE,
-					new RestorePlan.FromFile(src, Hash.fromHex(item.recycledHash), item.recycledIsRegion), cur, curRegion));
+					new RestorePlan.FromFile(src, Hash.fromHex(item.recycledHash), item.recycledIsRegion, item.recycledUnpacked), cur, curRegion));
 			} else if (item.placed && exists) {
 				ops.add(new RestorePlan.Op(item.path, RestorePlan.Action.REMOVE, null, cur, curRegion));
 			}
@@ -272,7 +275,7 @@ public final class RestoreEngine {
 		return out;
 	}
 
-	private record Expected(Hash hash, boolean region) {
+	private record Expected(Hash hash, boolean region, boolean unpacked) {
 	}
 
 	/** Executes a plan. The world must not be in use. Returns the saved record (with recycle bin location). */
@@ -297,7 +300,7 @@ public final class RestoreEngine {
 					Path target = FileUtil.resolveSafe(staging, op.path());
 					Files.createDirectories(target.getParent());
 					Expected exp = materialize(op, worldAbs, target);
-					Hash actual = ContentHasher.of(target, exp.region);
+					Hash actual = ContentHasher.of(target, exp.region, exp.unpacked);
 					if (!actual.equals(exp.hash)) {
 						throw new VerificationException("Staged file " + op.path() + " failed verification (expected " + exp.hash.shortHex() + ", got " + actual.shortHex() + ")");
 					}
@@ -337,6 +340,7 @@ public final class RestoreEngine {
 						item.recycled = true;
 						item.recycledHash = op.currentHash() != null ? op.currentHash().hex() : ContentHasher.plain(FileUtil.resolveSafe(recycle, op.path())).hex();
 						item.recycledIsRegion = op.currentHash() != null && op.currentIsRegion();
+						item.recycledUnpacked = item.recycledIsRegion && op.currentUnpacked();
 					}
 					if (op.action() == RestorePlan.Action.PLACE) {
 						journal.write("PLACE\t" + op.path());
@@ -347,6 +351,7 @@ public final class RestoreEngine {
 						item.placed = true;
 						item.placedHash = exp.hash.hex();
 						item.placedIsRegion = exp.region;
+						item.placedUnpacked = exp.unpacked;
 					}
 					record.items.add(item);
 					progress.addDone(1, 0);
@@ -362,7 +367,7 @@ public final class RestoreEngine {
 						Path f = FileUtil.resolveSafe(worldAbs, item.path);
 						Hash actual;
 						try {
-							actual = ContentHasher.of(f, item.placedIsRegion);
+							actual = ContentHasher.of(f, item.placedIsRegion, item.placedUnpacked);
 						} catch (IOException e) {
 							failures.add(item.path + " (" + e.getMessage() + ")");
 							return null;
@@ -413,16 +418,16 @@ public final class RestoreEngine {
 			if (e instanceof FileEntry f) {
 				writeFileEntry(f, target);
 				Files.setLastModifiedTime(target, FileTime.fromMillis(f.mtime()));
-				return new Expected(f.contentHash(), false);
+				return new Expected(f.contentHash(), false, false);
 			}
 			RegionEntry r = (RegionEntry) e;
 			writeRegion(target, r.chunks());
 			Files.setLastModifiedTime(target, FileTime.fromMillis(r.mtime()));
-			return new Expected(r.contentHash(), true);
+			return new Expected(r.contentHash(), true, r.unpacked());
 		}
 		if (src instanceof RestorePlan.FromFile ff) {
 			Files.copy(ff.file(), target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-			return new Expected(ff.expected(), ff.region());
+			return new Expected(ff.expected(), ff.region(), ff.unpacked());
 		}
 		RestorePlan.MergeRegion mr = (RestorePlan.MergeRegion) src;
 		return mergeRegion(mr, FileUtil.resolveSafe(world, op.path()), target);
@@ -442,14 +447,11 @@ public final class RestoreEngine {
 	}
 
 	private void writeRegion(Path target, List<ChunkRef> chunks) throws IOException {
+		Map<Integer, byte[]> payloads = ChunkPayloads.payloads(blobs, chunks);
 		List<RegionFiles.SlotInfo> slots = new ArrayList<>();
-		Map<Integer, Hash> byIndex = new HashMap<>();
-		for (ChunkRef c : chunks) {
-			slots.add(new RegionFiles.SlotInfo(c.index(), c.timestamp(), c.blob().rawLength()));
-			byIndex.put(c.index(), c.blob().hash());
-		}
+		for (ChunkRef c : chunks) slots.add(new RegionFiles.SlotInfo(c.index(), c.timestamp(), payloads.get(c.index()).length));
 		try (OutputStream out = new java.io.BufferedOutputStream(Files.newOutputStream(target), 1 << 16)) {
-			RegionFiles.write(out, slots, idx -> blobs.read(byIndex.get(idx)));
+			RegionFiles.write(out, slots, payloads::get);
 		}
 	}
 
@@ -461,7 +463,7 @@ public final class RestoreEngine {
 		Map<Integer, RegionFiles.ChunkSlot> backup = new HashMap<>();
 		if (mr.backupRegion() != null) {
 			for (ChunkRef c : mr.backupRegion().chunks()) {
-				if (mr.indices().contains(c.index())) backup.put(c.index(), new RegionFiles.ChunkSlot(c.index(), c.timestamp(), blobs.read(c.blob().hash())));
+				if (mr.indices().contains(c.index())) backup.put(c.index(), new RegionFiles.ChunkSlot(c.index(), c.timestamp(), ChunkPayloads.payload(blobs, c)));
 			}
 		} else if (mr.backupWholeFile() instanceof FileEntry f) {
 			Path tmp = target.resolveSibling(target.getFileName() + ".src");
@@ -484,7 +486,7 @@ public final class RestoreEngine {
 		for (RegionFiles.ChunkSlot s : slots) {
 			refs.add(new ChunkRef(s.index(), s.timestamp(), new BlobRef(Hash.compute(s.payload()), s.payload().length, 0)));
 		}
-		return new Expected(RegionEntry.logicalHash(refs), true);
+		return new Expected(RegionEntry.logicalHash(refs), true, false);
 	}
 
 	/**

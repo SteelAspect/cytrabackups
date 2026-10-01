@@ -26,7 +26,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 
 ## Features
 
-- **Small backups.** Files and individual chunks are stored once; a backup only adds what changed since the last one. Compressed with zstd.
+- **Small backups.** Files and individual chunks are stored once; a backup only adds what changed since the last one. Compressed with zstd. Turn on **Recompress chunks** in the settings to store chunk data about 24 percent smaller than Minecraft's own compression (native zstd with a dictionary trained on real chunks).
 - **Automatic backups** on an interval, at fixed times of day, when the server stops, or when the last player leaves. Skipped when nothing changed.
 - **Automatic cleanup** keeps the last N backups plus hourly, daily, weekly and monthly ones. Optional age and size limits. Pinned backups are never removed.
 - **Safe full restores:** you confirm, a countdown warns everyone, a backup of the current world is taken first, and the restore is checked before the world loads. Every restore can be undone with `/cbackup rollback`.
@@ -101,7 +101,8 @@ In singleplayer, turn on cheats (or "Allow Commands" when opening to LAN).
 - **Full restores** stop the server (singleplayer: close the world) and are applied when it starts again, before the world loads. On hosts that don't restart automatically, set Settings > Restore > Apply mode to `shutdown`.
 - **Area restores** happen live only when no player is close enough to keep those chunks loaded (about view distance + 13 chunks, e.g. 416 blocks at render distance 12). Otherwise they are applied at the next restart, and the message says why.
 - **Settings** can be changed in the menu, or in `config/cytrabackups.json` followed by `/cbackup reload`. Every option has a comment explaining it.
+- **Recompress chunks** needs the bundled native zstd (Windows, Linux, macOS on x64 or ARM64). The first backup after switching it on or off re-reads the whole world, and backups made with it on need CytraBackups 1.5.0 or newer.
 
 ## Credits and license
 
-Made by SteelAspect. MIT licensed ([LICENSE](LICENSE)). Inspired by [x-backup](https://github.com/zly2006/x-backup) (no code copied). Bundles aircompressor, fabric-permissions-api and JSch.
+Made by SteelAspect. MIT licensed ([LICENSE](LICENSE)). Inspired by [x-backup](https://github.com/zly2006/x-backup) (no code copied). Bundles aircompressor, zstd-jni, fabric-permissions-api and JSch.

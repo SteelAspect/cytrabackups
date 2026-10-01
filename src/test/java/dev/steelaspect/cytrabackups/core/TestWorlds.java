@@ -53,11 +53,17 @@ public final class TestWorlds implements AutoCloseable {
 		this.restore = new RestoreEngine(blobs, workers, storage, true);
 	}
 
-	/** zlib-compressed pseudo chunk NBT, deterministic per (seed). */
-	public static byte[] chunkPayload(long seed, int size) {
+	/** Pseudo chunk NBT (compressible text), deterministic per seed. */
+	public static byte[] chunkNbt(long seed, int size) {
 		Random r = new Random(seed);
 		byte[] raw = new byte[size];
 		for (int i = 0; i < size; i++) raw[i] = (byte) ('a' + r.nextInt(6));
+		return raw;
+	}
+
+	/** zlib-compressed pseudo chunk NBT, deterministic per (seed). */
+	public static byte[] chunkPayload(long seed, int size) {
+		byte[] raw = chunkNbt(seed, size);
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		bos.write(2); // compression type: zlib
 		try (DeflaterOutputStream d = new DeflaterOutputStream(bos)) {
@@ -122,7 +128,7 @@ public final class TestWorlds implements AutoCloseable {
 				String rel = FileUtil.relative(world, p);
 				if (rel.equals("session.lock")) continue;
 				boolean region = BackupEngine.isRegionPath(rel);
-				out.put(rel, dev.steelaspect.cytrabackups.core.restore.ContentHasher.of(p, region).hex());
+				out.put(rel, dev.steelaspect.cytrabackups.core.restore.ContentHasher.of(p, region, false).hex());
 			}
 		}
 		return out;

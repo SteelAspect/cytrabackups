@@ -31,6 +31,20 @@ class RegionFilesTest {
 	}
 
 	@Test
+	void unpackAndPackRoundTripForEveryStandardCompression() throws Exception {
+		byte[] nbt = TestWorlds.chunkNbt(7L, 5000);
+		for (int type : new int[]{1, 2, 3}) {
+			assertTrue(RegionFiles.canUnpack(type));
+			byte[] payload = RegionFiles.pack(type, nbt);
+			assertEquals(type, payload[0] & 0xFF);
+			assertArrayEquals(nbt, RegionFiles.unpack(payload), "type " + type);
+		}
+		assertArrayEquals(nbt, RegionFiles.unpack(TestWorlds.chunkPayload(7L, 5000)), "Minecraft's zlib payloads unpack too");
+		assertTrue(!RegionFiles.canUnpack(4), "LZ4 chunks stay as-is");
+		assertTrue(!RegionFiles.canUnpack(2 | RegionFiles.EXTERNAL_FLAG), "external chunk stubs stay as-is");
+	}
+
+	@Test
 	void coordinatesAndNames() {
 		assertEquals(33, RegionFiles.index(-31, 1)); // -31 & 31 = 1, 1*32
 		assertEquals(-32, RegionFiles.chunkX(-1, 0));

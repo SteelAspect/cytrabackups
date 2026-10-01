@@ -1,14 +1,19 @@
 package dev.steelaspect.cytrabackups.core;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
+import dev.steelaspect.cytrabackups.core.backup.BackupSettings;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
 import dev.steelaspect.cytrabackups.core.backup.Trigger;
+import dev.steelaspect.cytrabackups.core.compress.Codec;
+import dev.steelaspect.cytrabackups.core.compress.Compression;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.manifest.RegionEntry;
 import dev.steelaspect.cytrabackups.core.region.RegionFiles;
@@ -63,6 +68,54 @@ class RestoreTest {
 			assertFalse(Files.exists(w.storage.resolve("restore-journal.log")), "journal cleared on success");
 			// restored region is a valid region file
 			assertEquals(40, RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).size());
+		}
+	}
+
+	@Test
+	void recompressedChunksRestoreExactly() throws Exception {
+		assumeTrue(Compression.nativeZstd(), "native zstd not available on this platform");
+		try (TestWorlds w = new TestWorlds(dir, BackupSettings.defaults().withUnpackChunks(true, 15))) {
+			w.populate();
+			Map<String, String> original = w.snapshot();
+			BackupMeta b = w.backup("recompressed").meta();
+			RegionEntry stored = (RegionEntry) w.repo.loadManifest(b.id).get("region/r.0.0.mca");
+			assertTrue(stored.unpacked(), "regions are stored unpacked");
+			assertTrue(stored.chunks().stream().allMatch(c -> c.format() == 2), "zlib chunks record their compression type");
+			byte[] blobFile = Files.readAllBytes(w.blobs.pathFor(stored.chunks().getFirst().blob().hash()));
+			assertEquals(Codec.ZSTD_DICT.id, blobFile[4], "chunk NBT is stored with the dictionary codec");
+			assertTrue(w.backup("again").meta().id > b.id);
+			assertTrue(w.repo.loadManifest(b.id + 1).sameContent(w.repo.loadManifest(b.id), p -> false), "unchanged world: nothing new");
+			mutate(w);
+			RestorePlan plan = planFull(w, b.id);
+			RestoreRecord rec = w.restore.execute(plan, w.world, new Progress(), CancelToken.NONE);
+			assertEquals(original, w.snapshot(), "world content equals backup after restore");
+			assertEquals(40, RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).size());
+			assertArrayEquals(TestWorlds.chunkNbt(1000L, 3000), RegionFiles.unpack(RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).getFirst().payload()));
+			// rollback brings the mutated world back
+			RestorePlan rb = w.restore.planRollback(rec, w.world, new Progress(), CancelToken.NONE);
+			w.restore.execute(rb, w.world, new Progress(), CancelToken.NONE);
+			assertEquals(2, RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).size());
+		}
+	}
+
+	@Test
+	void switchingRecompressionReReadsRegionsAndBothRestore() throws Exception {
+		assumeTrue(Compression.nativeZstd(), "native zstd not available on this platform");
+		try (TestWorlds plain = new TestWorlds(dir)) {
+			plain.populate();
+			Map<String, String> original = plain.snapshot();
+			BackupMeta a = plain.backup("plain").meta();
+			try (TestWorlds packed = new TestWorlds(dir, BackupSettings.defaults().withUnpackChunks(true, 15))) {
+				BackupMeta b = packed.backup("packed").meta();
+				assertFalse(((RegionEntry) packed.repo.loadManifest(a.id).get("region/r.0.0.mca")).unpacked());
+				assertTrue(((RegionEntry) packed.repo.loadManifest(b.id).get("region/r.0.0.mca")).unpacked(), "setting change re-reads regions");
+				mutate(packed);
+				packed.restore.execute(planFull(packed, a.id), packed.world, new Progress(), CancelToken.NONE);
+				assertEquals(original, packed.snapshot(), "raw-payload backup restores");
+				mutate(packed);
+				packed.restore.execute(planFull(packed, b.id), packed.world, new Progress(), CancelToken.NONE);
+				assertEquals(original, packed.snapshot(), "recompressed backup restores");
+			}
 		}
 	}
 

@@ -11,6 +11,7 @@ import dev.steelaspect.cytrabackups.core.manifest.FileEntry;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.manifest.ManifestEntry;
 import dev.steelaspect.cytrabackups.core.manifest.RegionEntry;
+import dev.steelaspect.cytrabackups.core.region.ChunkPayloads;
 import dev.steelaspect.cytrabackups.core.region.RegionFiles;
 import dev.steelaspect.cytrabackups.core.store.BlobRef;
 import java.io.IOException;
@@ -21,7 +22,6 @@ import java.nio.file.attribute.FileTime;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.Deflater;
@@ -69,12 +69,9 @@ public final class ZipExporter {
 	}
 
 	private static void writeRegion(BackupRepository repo, RegionEntry r, OutputStream out) throws IOException {
+		Map<Integer, byte[]> payloads = ChunkPayloads.payloads(repo.blobs(), r.chunks());
 		List<RegionFiles.SlotInfo> slots = new ArrayList<>();
-		Map<Integer, BlobRef> refs = new HashMap<>();
-		for (ChunkRef c : r.chunks()) {
-			slots.add(new RegionFiles.SlotInfo(c.index(), c.timestamp(), c.blob().rawLength()));
-			refs.put(c.index(), c.blob());
-		}
+		for (ChunkRef c : r.chunks()) slots.add(new RegionFiles.SlotInfo(c.index(), c.timestamp(), payloads.get(c.index()).length));
 		OutputStream shield = new java.io.FilterOutputStream(out) {
 			@Override
 			public void write(byte[] b, int off, int len) throws IOException {
@@ -86,7 +83,7 @@ public final class ZipExporter {
 				// the zip entry is closed by the caller
 			}
 		};
-		RegionFiles.write(shield, slots, idx -> repo.blobs().read(refs.get(idx).hash()));
+		RegionFiles.write(shield, slots, payloads::get);
 	}
 
 	static String sanitize(String s) {

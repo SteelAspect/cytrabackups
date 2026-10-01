@@ -22,7 +22,7 @@ import java.util.zip.InflaterInputStream;
 /** The list of files making up one backup. Serialized in a compact, deflate-compressed binary format. */
 public final class Manifest {
 	private static final int MAGIC = 0x4359424D; // "CYBM"
-	private static final int VERSION = 1;
+	private static final int VERSION = 2; // 2: per-chunk format byte and per-region unpacked flag
 	private static final byte TYPE_FILE = 0;
 	private static final byte TYPE_REGION = 1;
 
@@ -101,10 +101,12 @@ public final class Manifest {
 			} else if (e instanceof RegionEntry r) {
 				out.writeByte(TYPE_REGION);
 				writeCommon(out, e);
+				out.writeByte(r.unpacked() ? 1 : 0);
 				out.writeShort(r.chunks().size());
 				for (ChunkRef c : r.chunks()) {
 					out.writeShort(c.index());
 					out.writeInt(c.timestamp());
+					out.writeByte(c.format());
 					writeBlob(out, c.blob());
 				}
 			}
@@ -137,7 +139,7 @@ public final class Manifest {
 		DataInputStream in = new DataInputStream(new java.io.BufferedInputStream(new InflaterInputStream(rawIn), 1 << 16));
 		if (in.readInt() != MAGIC) throw new IOException("Not a CytraBackups manifest");
 		int version = in.readInt();
-		if (version != VERSION) throw new IOException("Unsupported manifest version " + version);
+		if (version < 1 || version > VERSION) throw new IOException("Unsupported manifest version " + version + " (made by a newer CytraBackups)");
 		int count = in.readInt();
 		if (count < 0) throw new IOException("Corrupt manifest entry count");
 		List<ManifestEntry> list = new ArrayList<>(Math.min(count, 1 << 20));
@@ -154,14 +156,16 @@ public final class Manifest {
 				for (int j = 0; j < n; j++) pieces.add(readBlob(in));
 				list.add(new FileEntry(path, size, mtime, content, pieces));
 			} else if (type == TYPE_REGION) {
+				boolean unpacked = version >= 2 && in.readByte() != 0;
 				int n = in.readUnsignedShort();
 				List<ChunkRef> chunks = new ArrayList<>(n);
 				for (int j = 0; j < n; j++) {
 					int index = in.readUnsignedShort();
 					int ts = in.readInt();
-					chunks.add(new ChunkRef(index, ts, readBlob(in)));
+					int format = version >= 2 ? in.readUnsignedByte() : ChunkRef.RAW;
+					chunks.add(new ChunkRef(index, ts, readBlob(in), format));
 				}
-				list.add(new RegionEntry(path, size, mtime, content, chunks));
+				list.add(new RegionEntry(path, size, mtime, content, chunks, unpacked));
 			} else {
 				throw new IOException("Unknown manifest entry type " + type);
 			}

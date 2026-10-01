@@ -29,6 +29,30 @@ public final class Compression {
 		return codec;
 	}
 
+	public static boolean nativeZstd() {
+		return ZstdNative.available();
+	}
+
+	/**
+	 * Encoder for chunk NBT: zstd with the shipped chunk dictionary at {@code level} (1-22) when the native zstd is
+	 * available, otherwise this instance's normal encoding.
+	 */
+	public Compression.ChunkEncoder chunkEncoder(int level) {
+		if (!ZstdNative.available()) return (raw, off, len) -> encode(raw, off, len, false);
+		com.github.luben.zstd.ZstdDictCompress dict = ZstdNative.dictionaryCompressor(level);
+		return (raw, off, len) -> {
+			if (len < 64) return stored(raw, off, len);
+			byte[] out = new byte[ZstdNative.maxCompressedLength(len)];
+			int n = ZstdNative.compressWithDictionary(raw, off, len, out, dict);
+			if (n >= len * (1.0 - minSavings)) return stored(raw, off, len);
+			return new Encoded(Codec.ZSTD_DICT, out, n);
+		};
+	}
+
+	public interface ChunkEncoder {
+		Encoded encode(byte[] raw, int off, int len);
+	}
+
 	public int level() {
 		return level;
 	}
@@ -44,10 +68,15 @@ public final class Compression {
 		int outLen;
 		try {
 			if (codec == Codec.ZSTD) {
-				// aircompressor's pure-Java zstd implements one strategy (about zstd level 3); higher levels are not available
-				ZstdCompressor z = new ZstdCompressor();
-				out = new byte[z.maxCompressedLength(len)];
-				outLen = z.compress(raw, off, len, out, 0, out.length);
+				if (ZstdNative.available()) {
+					out = new byte[ZstdNative.maxCompressedLength(len)];
+					outLen = ZstdNative.compress(raw, off, len, out, level);
+				} else {
+					// aircompressor's pure-Java zstd implements one strategy (about zstd level 3); other levels are not available
+					ZstdCompressor z = new ZstdCompressor();
+					out = new byte[z.maxCompressedLength(len)];
+					outLen = z.compress(raw, off, len, out, 0, out.length);
+				}
 			} else {
 				Deflater deflater = new Deflater(Math.max(1, Math.min(9, level)));
 				try {
@@ -83,6 +112,10 @@ public final class Compression {
 			}
 			case ZSTD -> {
 				byte[] out = new byte[rawLength];
+				if (ZstdNative.available()) {
+					ZstdNative.decompress(data, off, len, out, rawLength);
+					return out;
+				}
 				int n;
 				try {
 					n = new ZstdDecompressor().decompress(data, off, len, out, 0, rawLength);
@@ -90,6 +123,12 @@ public final class Compression {
 					throw new IOException("Corrupt zstd data: " + e.getMessage(), e);
 				}
 				if (n != rawLength) throw new IOException("zstd length mismatch: " + n + " != " + rawLength);
+				return out;
+			}
+			case ZSTD_DICT -> {
+				if (!ZstdNative.available()) throw new IOException("This blob was compressed with the chunk dictionary, which needs the native zstd library that could not be loaded on this machine");
+				byte[] out = new byte[rawLength];
+				ZstdNative.decompressWithDictionary(data, off, len, out, rawLength);
 				return out;
 			}
 			case DEFLATE -> {

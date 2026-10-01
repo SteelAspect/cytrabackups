@@ -12,15 +12,24 @@ import java.util.function.Consumer;
  * A region file stored chunk-by-chunk, so a region where one chunk changed only adds that chunk's blob.
  * Restores rebuild a compact region file; its logical hash (over the chunk table) is what gets verified.
  */
-public record RegionEntry(String path, long size, long mtime, Hash contentHash, List<ChunkRef> chunks) implements ManifestEntry {
+public record RegionEntry(String path, long size, long mtime, Hash contentHash, List<ChunkRef> chunks, boolean unpacked) implements ManifestEntry {
 	public RegionEntry {
 		List<ChunkRef> sorted = new ArrayList<>(chunks);
 		sorted.sort(Comparator.comparingInt(ChunkRef::index));
 		chunks = List.copyOf(sorted);
 	}
 
+	public RegionEntry(String path, long size, long mtime, Hash contentHash, List<ChunkRef> chunks) {
+		this(path, size, mtime, contentHash, chunks, false);
+	}
+
+	/** {@code unpacked}: the chunks were stored as NBT (where their compression allowed it) instead of raw payloads. */
+	public static RegionEntry create(String path, long size, long mtime, List<ChunkRef> chunks, boolean unpacked) {
+		return new RegionEntry(path, size, mtime, logicalHash(chunks), chunks, unpacked);
+	}
+
 	public static RegionEntry create(String path, long size, long mtime, List<ChunkRef> chunks) {
-		return new RegionEntry(path, size, mtime, logicalHash(chunks), chunks);
+		return create(path, size, mtime, chunks, false);
 	}
 
 	public ChunkRef chunk(int index) {

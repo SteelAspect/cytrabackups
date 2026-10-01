@@ -28,14 +28,18 @@ public record RestorePlan(RestoreRecord.Kind kind, int backupId, String descript
 	public record MergeRegion(RegionEntry backupRegion, ManifestEntry backupWholeFile, List<Integer> indices) implements Source {
 	}
 
-	/** A file from disk (the recycle bin) with a known hash. */
-	public record FromFile(Path file, Hash expected, boolean region) implements Source {
+	/** A file from disk (the recycle bin) with a known hash ({@code unpacked}: region hash over chunk NBT). */
+	public record FromFile(Path file, Hash expected, boolean region, boolean unpacked) implements Source {
 	}
 
 	/**
 	 * @param currentHash hash of the file currently in the world (null if absent)
+	 * @param currentUnpacked the region hash was taken over chunk NBT rather than raw payloads
 	 */
-	public record Op(String path, Action action, Source source, Hash currentHash, boolean currentIsRegion) {
+	public record Op(String path, Action action, Source source, Hash currentHash, boolean currentIsRegion, boolean currentUnpacked) {
+		public Op(String path, Action action, Source source, Hash currentHash, boolean currentIsRegion) {
+			this(path, action, source, currentHash, currentIsRegion, false);
+		}
 	}
 
 	public long placeCount() {

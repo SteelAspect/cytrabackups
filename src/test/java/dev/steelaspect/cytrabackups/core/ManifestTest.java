@@ -38,6 +38,20 @@ class ManifestTest {
 	}
 
 	@Test
+	void unpackedRegionsKeepFormatBytes() throws Exception {
+		RegionEntry r = RegionEntry.create("region/r.1.1.mca", 8192, 1L, List.of(new ChunkRef(0, 1, ref("nbt0"), 2), new ChunkRef(7, 2, ref("raw7"), ChunkRef.RAW)), true);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		new Manifest(List.of(r)).write(out);
+		RegionEntry back = (RegionEntry) Manifest.read(new ByteArrayInputStream(out.toByteArray())).get("region/r.1.1.mca");
+		assertTrue(back.unpacked());
+		assertEquals(2, back.chunks().get(0).format());
+		assertTrue(back.chunks().get(0).unpacked());
+		assertEquals(ChunkRef.RAW, back.chunks().get(1).format());
+		assertFalse(back.chunks().get(1).unpacked());
+		assertEquals(r, back);
+	}
+
+	@Test
 	void sameContentHonoursIgnoreList() {
 		FileEntry a = new FileEntry("level.dat", 1, 1, Hash.compute("a".getBytes()), List.of(ref("a")));
 		FileEntry b = new FileEntry("level.dat", 1, 2, Hash.compute("b".getBytes()), List.of(ref("b")));

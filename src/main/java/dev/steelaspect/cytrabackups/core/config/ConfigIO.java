@@ -54,7 +54,8 @@ public final class ConfigIO {
 		List<String> p = new ArrayList<>(ConfigSchema.genericProblems(c));
 		if (c.storagePath == null || c.storagePath.isBlank()) p.add(Lang.get("cytrabackups.config.problem.empty", "storagePath"));
 		String alg = c.compression.algorithm.toLowerCase(Locale.ROOT);
-		if (alg.equals("zstd") && (c.compression.level < 1 || c.compression.level > 19)) p.add(Lang.get("cytrabackups.config.problem.range_for", "compression.level", 1, 19, "zstd"));
+		if (alg.equals("zstd") && (c.compression.level < 1 || c.compression.level > 22)) p.add(Lang.get("cytrabackups.config.problem.range_for", "compression.level", 1, 22, "zstd"));
+		if (c.compression.chunkLevel < 1 || c.compression.chunkLevel > 22) p.add(Lang.get("cytrabackups.config.problem.range", "compression.chunkLevel", 1, 22));
 		if (alg.equals("deflate") && (c.compression.level < 1 || c.compression.level > 9)) p.add(Lang.get("cytrabackups.config.problem.range_for", "compression.level", 1, 9, "deflate"));
 		if (c.compression.minSavingsPercent > 100) p.add(Lang.get("cytrabackups.config.problem.range", "compression.minSavingsPercent", 0, 100));
 		if (c.offsite.sftp.port < 1 || c.offsite.sftp.port > 65535) p.add(Lang.get("cytrabackups.config.problem.range", "offsite.sftp.port", 1, 65535));

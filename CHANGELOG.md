@@ -2,6 +2,17 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.5.0
+
+**Smaller backups: chunk recompression.**
+
+- New setting **Recompress chunks** (`compression.recompressChunks`, off by default). Each chunk's data is unpacked from Minecraft's zlib and stored with native zstd plus a dictionary trained on real 1.21.11 chunks (shipped in the jar). Measured on 25,000 real chunks: about 24 percent smaller than the zlib payloads at the default level 15 (`compression.chunkLevel`, 1-22). Restores, exports and live chunk restores pack the chunks back into normal region files, so Minecraft never sees a difference.
+- Native zstd (zstd-jni) is bundled for Windows, Linux and macOS (x64 and ARM64). With it, the zstd **Level** setting now works (1-22). On a platform without a native library the mod falls back to the pure-Java zstd as before; dictionary-compressed chunks can only be read where the native library loads.
+- Turning the setting on or off makes the next backup re-read every region file once (it is a full read, not a full copy: unchanged chunks that already exist in the store are still shared).
+- Backups written with recompression on need CytraBackups 1.5.0 or newer to restore. Older backups restore as before.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.4.0
 
 **Get backups back from the off-site copy.**

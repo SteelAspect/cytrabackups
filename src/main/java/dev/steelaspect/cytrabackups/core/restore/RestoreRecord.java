@@ -17,8 +17,11 @@ public final class RestoreRecord {
 		public boolean recycled;
 		public String recycledHash;
 		public boolean recycledIsRegion;
+		/** The region hash is over chunk NBT (unpacked chunks) rather than raw payloads. */
+		public boolean recycledUnpacked;
 		public String placedHash;
 		public boolean placedIsRegion;
+		public boolean placedUnpacked;
 	}
 
 	public String restoreId;

@@ -4,7 +4,9 @@ package dev.steelaspect.cytrabackups.core.compress;
 public enum Codec {
 	NONE(0),
 	ZSTD(1),
-	DEFLATE(2);
+	DEFLATE(2),
+	/** zstd with the chunk dictionary shipped in the mod (chunk NBT only); needs the native zstd to read and write. */
+	ZSTD_DICT(3);
 
 	public final int id;
 

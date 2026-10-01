@@ -60,6 +60,11 @@ dependencies {
 	implementation "io.airlift:aircompressor:${project.aircompressor_version}"
 	include "io.airlift:aircompressor:${project.aircompressor_version}"
 
+	// Native zstd (all desktop/server platforms) for real compression levels and dictionary compression of chunks.
+	// Bundled (jar-in-jar); the mod falls back to aircompressor when the native library cannot be loaded.
+	implementation "com.github.luben:zstd-jni:${project.zstd_jni_version}"
+	include "com.github.luben:zstd-jni:${project.zstd_jni_version}"
+
 	// Pure-Java SFTP client for off-site copies. Bundled (jar-in-jar).
 	implementation "com.github.mwiede:jsch:${project.jsch_version}"
 	include "com.github.mwiede:jsch:${project.jsch_version}"
@@ -72,6 +77,7 @@ dependencies {
 	integrationTestImplementation "com.google.code.gson:gson:2.13.2"
 	integrationTestImplementation "io.airlift:aircompressor:${project.aircompressor_version}"
 	integrationTestImplementation "com.github.mwiede:jsch:${project.jsch_version}"
+	integrationTestImplementation "com.github.luben:zstd-jni:${project.zstd_jni_version}"
 	integrationTestImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	integrationTestImplementation "org.junit.jupiter:junit-jupiter"
 	integrationTestRuntimeOnly "org.junit.platform:junit-platform-launcher"

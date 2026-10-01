@@ -63,8 +63,27 @@ public final class BlobStore {
 		Path target = pathFor(hash);
 		long existing = storedSize(target);
 		if (existing >= 0) return new PutResult(new BlobRef(hash, len, existing), false);
+		return put(hash, data, off, len, compression.encode(data, off, len, knownCompressed));
+	}
 
-		Compression.Encoded enc = compression.encode(data, off, len, knownCompressed);
+	public Compression compression() {
+		return compression;
+	}
+
+	/** Stores chunk NBT with the chunk encoder (dictionary zstd when available). */
+	public PutResult putChunk(byte[] nbt, Compression.ChunkEncoder encoder) throws IOException {
+		Hash hash = Hash.compute(nbt);
+		Path target = pathFor(hash);
+		long existing = storedSize(target);
+		if (existing >= 0) return new PutResult(new BlobRef(hash, nbt.length, existing), false);
+		return put(hash, nbt, 0, nbt.length, encoder.encode(nbt, 0, nbt.length));
+	}
+
+	private PutResult put(Hash hash, byte[] data, int off, int len, Compression.Encoded enc) throws IOException {
+		Path target = pathFor(hash);
+		long existing = storedSize(target);
+		if (existing >= 0) return new PutResult(new BlobRef(hash, len, existing), false);
+
 		Files.createDirectories(target.getParent());
 		Path temp = tmp.resolve(UUID.randomUUID() + ".blob");
 		try (FileChannel ch = FileChannel.open(temp, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {

@@ -2,6 +2,17 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.4.0
+
+**Get backups back from the off-site copy.**
+
+- `/cbackup offsite list` shows the backups stored at your S3, SFTP or WebDAV destination, with a [Fetch] button for the ones not on this server. `/cbackup offsite fetch <id>` downloads one into the local store (every piece verified), after which it can be restored like any other backup. Also under Tools in the menu.
+- Works for disaster recovery: on a fresh server with the same off-site settings, list, fetch, restore.
+- OVHcloud Object Storage documented as an S3 destination (endpoint `https://s3.<region>.io.cloud.ovh.net`, region e.g. `gra`, path-style on).
+- The zstd "Level" setting is documented as having no effect: the bundled pure-Java zstd has a single level (about zstd 3). Measured on 25,000 real 1.21.11 chunks, recompressing with higher zstd levels would save at most 10-24%, so that is planned separately with a native zstd.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.3.1
 
 **Fixes from a full code review.**

@@ -73,8 +73,4 @@ class CompressionTest {
 		});
 	}
 
-	@Test
-	void zstdLevelsAreHonoured() {
-		assertTrue(Compression.zstdLevelsSupported(), "reflective zstd level bridge should work on this JVM");
-	}
 }

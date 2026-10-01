@@ -2,6 +2,7 @@ package dev.steelaspect.cytrabackups.core.offsite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.steelaspect.cytrabackups.core.CancelToken;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
@@ -44,8 +46,59 @@ class OffsiteTest {
 		}
 
 		@Override
+		public void download(String key, Path file) throws IOException {
+			byte[] data = objects.get(key);
+			if (data == null) throw new java.nio.file.NoSuchFileException(key);
+			Files.write(file, data);
+		}
+
+		@Override
+		public List<String> list(String prefix) {
+			return objects.keySet().stream().filter(k -> k.startsWith(prefix)).sorted().toList();
+		}
+
+		@Override
 		public String describe() {
 			return "fake";
+		}
+	}
+
+	@Test
+	void fetchRebuildsABackupInAnEmptyRepository() throws Exception {
+		FakeTarget t = new FakeTarget();
+		Map<String, String> original;
+		int id;
+		try (TestWorlds w = new TestWorlds(dir.resolve("a"))) {
+			w.populate();
+			original = w.snapshot();
+			BackupMeta a = w.backup("first").meta();
+			id = a.id;
+			OffsiteSync sync = new OffsiteSync(w.repo, w.storage.resolve("offsite"), s -> {
+			});
+			sync.enqueueUpload(a.id);
+			sync.process(t, w.workers, true, new Progress(), CancelToken.NONE);
+		}
+		// a new server with an empty repository and the same off-site settings
+		try (TestWorlds w = new TestWorlds(dir.resolve("b"))) {
+			OffsiteSync sync = new OffsiteSync(w.repo, w.storage.resolve("offsite"), s -> {
+			});
+			List<OffsiteSync.RemoteBackup> remote = sync.listRemote(t);
+			assertEquals(1, remote.size());
+			assertEquals("first", remote.get(0).meta().comment);
+			int blobs = sync.fetch(t, id, w.workers, true, new Progress(), CancelToken.NONE);
+			assertTrue(blobs > 0);
+			BackupMeta fetched = w.repo.get(id).orElseThrow();
+			assertEquals("first", fetched.comment);
+			assertTrue(dev.steelaspect.cytrabackups.core.backup.Verifier.verify(w.repo, id, w.workers, new Progress(), CancelToken.NONE).ok(), "every blob verified");
+			assertEquals(id + 1, w.repo.state().nextId, "ids continue after the fetched backup");
+			assertTrue(sync.queue().uploaded.contains(id), "a fetched backup is not uploaded again");
+			IOException missing = assertThrows(IOException.class, () -> sync.fetch(t, id + 100, w.workers, true, new Progress(), CancelToken.NONE));
+			assertTrue(missing.getMessage().contains("no backup #" + (id + 100)), missing.getMessage());
+			IOException twice = assertThrows(IOException.class, () -> sync.fetch(t, id, w.workers, true, new Progress(), CancelToken.NONE));
+			assertTrue(twice.getMessage().contains("already here"), twice.getMessage());
+			var plan = w.restore.planFull(w.repo.loadManifest(id), id, false, w.world, dev.steelaspect.cytrabackups.core.backup.PathFilter.ALL, List.of(), new Progress(), CancelToken.NONE);
+			w.restore.execute(plan, w.world, new Progress(), CancelToken.NONE);
+			assertEquals(original, w.snapshot(), "the fetched backup restores the original world");
 		}
 	}
 

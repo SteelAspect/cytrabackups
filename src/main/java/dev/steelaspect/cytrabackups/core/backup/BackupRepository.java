@@ -158,6 +158,25 @@ public final class BackupRepository {
 		cachedManifest = new java.lang.ref.SoftReference<>(new CachedManifest(meta.id, manifest));
 	}
 
+	/** Where a backup being fetched from an off-site copy is assembled before it becomes visible. */
+	public Path stagingDir(int id) {
+		return backupsDir.resolve(dirName(id) + ".partial");
+	}
+
+	/** Makes a fully assembled staging directory visible as backup {@code id}. */
+	public synchronized BackupMeta adopt(int id) throws IOException {
+		Path finalDir = backupDir(id);
+		if (metas.containsKey(id) || Files.exists(finalDir)) throw new IOException("Backup #" + id + " already exists here");
+		BackupMeta meta = Json.read(stagingDir(id).resolve("meta.json"), BackupMeta.class);
+		FileUtil.move(stagingDir(id), finalDir, false);
+		metas.put(meta.id, meta);
+		if (state.nextId <= id) {
+			state.nextId = id + 1;
+			saveState();
+		}
+		return meta;
+	}
+
 	public void updateMeta(BackupMeta meta) throws IOException {
 		if (!metas.containsKey(meta.id)) throw new IOException("No backup #" + meta.id);
 		Json.write(backupDir(meta.id).resolve("meta.json"), meta);

@@ -45,7 +45,7 @@ public final class BackupCommands {
 		{"restore <id> region <dim> <rx> <rz>", "region"}, {"rollback", "rollback"}, {"pending [cancel|apply]", "pending"},
 		{"comment <id> [text]", "comment"}, {"pin <id>", "pin"}, {"unpin <id>", "unpin"}, {"delete <id>", "delete"},
 		{"verify <id>", "verify"}, {"export <id>", "export"}, {"import <path> [comment]", "import"}, {"prune [dryrun]", "prune"},
-		{"gc", "gc"}, {"status", "status"}, {"cancel", "cancel"}, {"reload", "reload"}, {"offsite [status|sync]", "offsite"},
+		{"gc", "gc"}, {"status", "status"}, {"cancel", "cancel"}, {"reload", "reload"}, {"offsite [status|sync|list]", "offsite"}, {"offsite fetch <id>", "fetch"},
 	};
 
 	private BackupCommands() {
@@ -214,7 +214,13 @@ public final class BackupCommands {
 			.then(literal("sync").executes(c -> {
 				manager().offsiteSyncAll(Feedback.of(c.getSource()));
 				return 1;
-			})));
+			}))
+			.then(literal("list").executes(c -> {
+				manager().offsiteList(Feedback.of(c.getSource()));
+				return 1;
+			}))
+			.then(literal("fetch").then(argument("id", integer(1))
+				.executes(c -> started(manager().offsiteFetch(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c)))));
 
 		root.then(literal("help").executes(c -> help(c.getSource())));
 		root.executes(c -> help(c.getSource()));

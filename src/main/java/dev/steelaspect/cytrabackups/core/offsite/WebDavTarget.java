@@ -6,7 +6,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Set;
@@ -94,6 +100,63 @@ public final class WebDavTarget implements OffsiteTarget {
 	public void delete(String key) throws IOException {
 		HttpResponse<Void> res = send(req(key).DELETE().build());
 		if (res.statusCode() / 100 != 2 && res.statusCode() != 404) throw new IOException("WebDAV DELETE " + key + " failed: HTTP " + res.statusCode());
+	}
+
+	@Override
+	public void download(String key, Path file) throws IOException {
+		Path tmp = file.resolveSibling(file.getFileName() + ".part");
+		HttpResponse<Path> res;
+		try {
+			res = client.send(req(key).GET().build(), HttpResponse.BodyHandlers.ofFile(tmp));
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("interrupted", e);
+		}
+		if (res.statusCode() == 404) {
+			Files.deleteIfExists(tmp);
+			throw new NoSuchFileException(key);
+		}
+		if (res.statusCode() / 100 != 2) {
+			Files.deleteIfExists(tmp);
+			throw new IOException("WebDAV GET " + key + " failed: HTTP " + res.statusCode());
+		}
+		Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+	}
+
+	@Override
+	public List<String> list(String prefix) throws IOException {
+		List<String> out = new ArrayList<>();
+		String dir = prefix.isEmpty() || prefix.endsWith("/") ? prefix : prefix + "/";
+		walk(dir, out);
+		return out;
+	}
+
+	private static final Pattern HREF = Pattern.compile("<(?:[A-Za-z0-9_]+:)?href>([^<]*)</(?:[A-Za-z0-9_]+:)?href>");
+
+	/** One PROPFIND per folder; hrefs come back as server paths, which are mapped back to keys under the base URL. */
+	private void walk(String dir, List<String> out) throws IOException {
+		HttpResponse<String> res;
+		try {
+			res = client.send(req(dir).header("Depth", "1").method("PROPFIND", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("interrupted", e);
+		}
+		if (res.statusCode() == 404) return;
+		if (res.statusCode() != 207 && res.statusCode() != 200) throw new IOException("WebDAV PROPFIND " + dir + " failed: HTTP " + res.statusCode());
+		String basePath = URI.create(base).getRawPath();
+		Matcher m = HREF.matcher(res.body());
+		List<String> subdirs = new ArrayList<>();
+		while (m.find()) {
+			String href = m.group(1).trim();
+			String path = href.startsWith("http") ? URI.create(href).getRawPath() : href;
+			if (!path.startsWith(basePath)) continue;
+			String key = java.net.URLDecoder.decode(path.substring(basePath.length()).replace("+", "%2B"), StandardCharsets.UTF_8);
+			if (key.equals(dir) || key.isEmpty()) continue;
+			if (key.endsWith("/")) subdirs.add(key);
+			else out.add(key);
+		}
+		for (String sub : subdirs) walk(sub, out);
 	}
 
 	@Override

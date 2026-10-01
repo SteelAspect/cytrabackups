@@ -8,7 +8,10 @@ import com.jcraft.jsch.SftpException;
 import com.jcraft.jsch.UserInfo;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -130,6 +133,39 @@ public final class SftpTarget implements OffsiteTarget {
 			channel().rm(remoteDir + "/" + key);
 		} catch (SftpException e) {
 			if (e.id != ChannelSftp.SSH_FX_NO_SUCH_FILE) throw new IOException("SFTP delete failed: " + e.getMessage(), e);
+		}
+	}
+
+	@Override
+	public synchronized void download(String key, Path file) throws IOException {
+		try {
+			channel().get(remoteDir + "/" + key, file.toString());
+		} catch (SftpException e) {
+			if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) throw new NoSuchFileException(key);
+			throw new IOException("SFTP download of " + key + " failed: " + e.getMessage(), e);
+		}
+	}
+
+	@Override
+	public synchronized List<String> list(String prefix) throws IOException {
+		List<String> out = new ArrayList<>();
+		String dir = prefix.endsWith("/") ? prefix.substring(0, prefix.length() - 1) : prefix;
+		try {
+			walk(channel(), dir.isEmpty() ? remoteDir : remoteDir + "/" + dir, dir.isEmpty() ? "" : dir + "/", out);
+		} catch (SftpException e) {
+			if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return out;
+			throw new IOException("SFTP listing of " + prefix + " failed: " + e.getMessage(), e);
+		}
+		return out;
+	}
+
+	private static void walk(ChannelSftp c, String path, String keyPrefix, List<String> out) throws SftpException {
+		for (Object o : c.ls(path)) {
+			ChannelSftp.LsEntry e = (ChannelSftp.LsEntry) o;
+			String name = e.getFilename();
+			if (name.equals(".") || name.equals("..")) continue;
+			if (e.getAttrs().isDir()) walk(c, path + "/" + name, keyPrefix + name + "/", out);
+			else out.add(keyPrefix + name);
 		}
 	}
 

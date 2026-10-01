@@ -979,6 +979,52 @@ public final class BackupManager {
 		});
 	}
 
+	/** Lists the backups stored off-site, with a [Fetch] button for the ones not present here. */
+	public void offsiteList(Feedback fb) {
+		if (!config.offsite.enabled) {
+			fb.error("cytrabackups.error.offsite_off");
+			return;
+		}
+		async(() -> {
+			try (OffsiteTarget target = createTarget(config)) {
+				List<OffsiteSync.RemoteBackup> remote = offsite.listRemote(target);
+				if (remote.isEmpty()) {
+					fb.info("cytrabackups.offsite.list_none", target.describe());
+					return;
+				}
+				fb.info(Lang.plural("cytrabackups.offsite.list_title", remote.size()), remote.size(), target.describe());
+				for (int i = remote.size() - 1; i >= 0; i--) {
+					OffsiteSync.RemoteBackup r = remote.get(i);
+					BackupMeta meta = r.meta();
+					MutableComponent line = Msg.detail("cytrabackups.offsite.list_line", r.id(), Formatting.dateTimeShort(meta.createdAt, zone()),
+						Formatting.bytes(meta.totalSize), meta.trigger.displayName() + (meta.comment.isBlank() ? "" : " " + meta.comment)).append(" ");
+					line.append(services.repo.get(r.id()).isPresent() ? Msg.detail("cytrabackups.offsite.list_local")
+						: Msg.button("cytrabackups.button.fetch", Msg.command("offsite", "fetch", r.id()), "cytrabackups.hover.fetch", r.id()));
+					fb.send(line, false);
+				}
+			} catch (Exception e) {
+				fb.error("cytrabackups.error.offsite", rootMessage(e));
+			}
+		});
+	}
+
+	/** Downloads a backup from the off-site copy into the local repository, so it can be restored like any other. */
+	public boolean offsiteFetch(int id, String who, Feedback fb) {
+		if (!config.offsite.enabled) {
+			fb.error("cytrabackups.error.offsite_off");
+			return false;
+		}
+		return runJob("cytrabackups.job.fetch", who, fb, false, job -> {
+			CytraConfig cfg = config;
+			try (OffsiteTarget target = createTarget(cfg)) {
+				int blobs = offsite.fetch(target, id, offsiteWorkers, !cfg.offsite.type.equals("sftp"), job.progress(), job.cancel());
+				BackupMeta m = services.repo.get(id).orElseThrow();
+				fb.send(Msg.success("cytrabackups.offsite.fetched", id, target.describe(), blobs, Formatting.bytes(m.totalSize)).append(" ")
+					.append(Msg.button("cytrabackups.button.info", Msg.command("info", id), "cytrabackups.hover.info", id)), false);
+			}
+		});
+	}
+
 	/** First line is the summary; further lines are details. */
 	public List<Component> offsiteStatus() {
 		List<Component> out = new ArrayList<>();

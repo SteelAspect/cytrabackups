@@ -11,6 +11,9 @@ import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.offsite.S3Target;
 import dev.steelaspect.cytrabackups.core.prune.GarbageCollector;
+import dev.steelaspect.cytrabackups.core.backup.Verifier;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
+import java.util.List;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -128,6 +131,26 @@ class S3IntegrationTest {
 			for (String k : fx.expectedKeys(b)) remaining.add("server1/" + k);
 			assertEquals(remaining, remoteKeys("server1/"), "remote mirrors local after prune + GC");
 			assertFalse(fx.sync.hasWork());
+		}
+	}
+
+	@Test
+	void listAndFetchFromAnEmptyRepository(@TempDir Path dir) throws Exception {
+		S3Target t = target("server2/", SECRET);
+		int id;
+		try (Fixture fx = new Fixture(dir.resolve("src"))) {
+			id = fx.backup("to fetch").id;
+			fx.sync.enqueueMissing();
+			fx.sync.process(t, fx.workers, true, new Progress(), CancelToken.NONE);
+		}
+		try (Fixture fx = new Fixture(dir.resolve("dst"))) {
+			List<OffsiteSync.RemoteBackup> remote = fx.sync.listRemote(t);
+			assertEquals(1, remote.size());
+			assertEquals("to fetch", remote.get(0).meta().comment);
+			int blobs = fx.sync.fetch(t, id, fx.workers, true, new Progress(), CancelToken.NONE);
+			assertTrue(blobs > 0);
+			assertTrue(Verifier.verify(fx.repo, id, fx.workers, new Progress(), CancelToken.NONE).ok(), "fetched blobs verify");
+			assertEquals("to fetch", fx.repo.get(id).orElseThrow().comment);
 		}
 	}
 }

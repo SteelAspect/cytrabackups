@@ -10,6 +10,9 @@ import dev.steelaspect.cytrabackups.core.CancelToken;
 import dev.steelaspect.cytrabackups.core.Progress;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.offsite.WebDavTarget;
+import dev.steelaspect.cytrabackups.core.backup.Verifier;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
+import java.util.List;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,6 +121,12 @@ class WebDavIntegrationTest {
 				s.filter(Files::isRegularFile).forEach(p -> remote.add(base.relativize(p).toString().replace('\\', '/')));
 			}
 			assertEquals(new TreeSet<>(fx.expectedKeys(a)), remote);
+			try (Fixture other = new Fixture(dir.resolve("fx2"))) {
+				WebDavTarget t = new WebDavTarget(url, "dav", "pa55");
+				assertEquals(List.of(a.id), other.sync.listRemote(t).stream().map(OffsiteSync.RemoteBackup::id).toList());
+				assertTrue(other.sync.fetch(t, a.id, other.workers, true, new Progress(), CancelToken.NONE) > 0);
+				assertTrue(Verifier.verify(other.repo, a.id, other.workers, new Progress(), CancelToken.NONE).ok(), "fetched over WebDAV and verified");
+			}
 		}
 	}
 }

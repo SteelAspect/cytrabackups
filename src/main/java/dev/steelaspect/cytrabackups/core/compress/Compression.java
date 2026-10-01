@@ -3,7 +3,6 @@ package dev.steelaspect.cytrabackups.core.compress;
 import io.airlift.compress.zstd.ZstdCompressor;
 import io.airlift.compress.zstd.ZstdDecompressor;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -13,8 +12,6 @@ import java.util.zip.Inflater;
  * (sniffed by magic bytes, or flagged by the caller) or that does not shrink enough is stored raw.
  */
 public final class Compression {
-	private static final ZstdLevelBridge ZSTD_LEVELS = ZstdLevelBridge.create();
-
 	private final Codec codec;
 	private final int level;
 	private final double minSavings;
@@ -47,8 +44,10 @@ public final class Compression {
 		int outLen;
 		try {
 			if (codec == Codec.ZSTD) {
-				out = new byte[new ZstdCompressor().maxCompressedLength(len)];
-				outLen = ZSTD_LEVELS.compress(raw, off, len, out, level);
+				// aircompressor's pure-Java zstd implements one strategy (about zstd level 3); higher levels are not available
+				ZstdCompressor z = new ZstdCompressor();
+				out = new byte[z.maxCompressedLength(len)];
+				outLen = z.compress(raw, off, len, out, 0, out.length);
 			} else {
 				Deflater deflater = new Deflater(Math.max(1, Math.min(9, level)));
 				try {
@@ -135,50 +134,5 @@ public final class Compression {
 		if (b0 == 0x52 && b1 == 0x49 && b2 == 0x46 && b3 == 0x46 && len >= 12
 			&& d[off + 8] == 'W' && d[off + 9] == 'E' && d[off + 10] == 'B' && d[off + 11] == 'P') return true; // webp
 		return false;
-	}
-
-	/** Returns whether zstd levels other than the library default are honoured on this JVM. */
-	public static boolean zstdLevelsSupported() {
-		return ZSTD_LEVELS.method != null;
-	}
-
-	/**
-	 * aircompressor's public ZstdCompressor always uses level 3; the level-aware entry point is package-private,
-	 * so we call it reflectively and fall back to the default compressor if that fails.
-	 */
-	private static final class ZstdLevelBridge {
-		private final Method method;
-		private final long arrayBase;
-
-		private ZstdLevelBridge(Method method, long arrayBase) {
-			this.method = method;
-			this.arrayBase = arrayBase;
-		}
-
-		static ZstdLevelBridge create() {
-			try {
-				Class<?> frame = Class.forName("io.airlift.compress.zstd.ZstdFrameCompressor");
-				Method m = frame.getDeclaredMethod("compress", Object.class, long.class, long.class, Object.class, long.class, long.class, int.class);
-				m.setAccessible(true);
-				Class<?> unsafe = Class.forName("sun.misc.Unsafe");
-				long base = unsafe.getField("ARRAY_BYTE_BASE_OFFSET").getInt(null);
-				return new ZstdLevelBridge(m, base);
-			} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-				return new ZstdLevelBridge(null, 0);
-			}
-		}
-
-		int compress(byte[] in, int off, int len, byte[] out, int level) {
-			if (method != null && level != 3) {
-				int lvl = Math.max(1, Math.min(level, 19));
-				try {
-					long inAddr = arrayBase + off;
-					return (int) method.invoke(null, in, inAddr, inAddr + len, out, arrayBase, arrayBase + out.length, lvl);
-				} catch (ReflectiveOperationException | RuntimeException e) {
-					// fall through to the default level
-				}
-			}
-			return new ZstdCompressor().compress(in, off, len, out, 0, out.length);
-		}
 	}
 }

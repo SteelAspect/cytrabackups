@@ -248,6 +248,128 @@ public final class OffsiteSync {
 		return new Result(backups, blobCount, bytes, deleted);
 	}
 
+	/** A backup stored at the target, with its metadata (downloaded on the spot). */
+	public record RemoteBackup(int id, BackupMeta meta) {
+	}
+
+	/** Backups present at the target, oldest first. */
+	public List<RemoteBackup> listRemote(OffsiteTarget target) throws IOException {
+		List<RemoteBackup> out = new ArrayList<>();
+		Path tmp = Files.createTempFile(dir, "remote-meta", ".json");
+		try {
+			TreeSet<Integer> ids = new TreeSet<>();
+			for (String key : target.list("backups/")) {
+				if (!key.endsWith("/meta.json")) continue;
+				String name = key.substring("backups/".length(), key.length() - "/meta.json".length());
+				if (name.matches("\\d+")) ids.add(Integer.parseInt(name));
+			}
+			for (int id : ids) {
+				target.download("backups/" + BackupRepository.dirName(id) + "/meta.json", tmp);
+				BackupMeta meta = Json.read(tmp, BackupMeta.class);
+				out.add(new RemoteBackup(id, meta));
+			}
+		} finally {
+			Files.deleteIfExists(tmp);
+		}
+		return out;
+	}
+
+	/**
+	 * Downloads backup {@code id} from the target into the local repository: metadata, manifest and every blob not already
+	 * stored here (each verified against its hash). Returns the number of blobs downloaded.
+	 */
+	public int fetch(OffsiteTarget target, int id, ExecutorService workers, boolean parallel, Progress progress, CancelToken cancel) throws IOException {
+		if (repo.get(id).isPresent()) throw new IOException(Lang.get("cytrabackups.offsite.already_local", id));
+		String prefix = "backups/" + BackupRepository.dirName(id) + "/";
+		Path staging = repo.stagingDir(id);
+		FileUtil.deleteRecursively(staging);
+		Files.createDirectories(staging);
+		progress.phase(Lang.get("cytrabackups.phase.fetch", id, target.describe()));
+		try {
+			target.download(prefix + "meta.json", staging.resolve("meta.json"));
+		} catch (java.nio.file.NoSuchFileException e) {
+			FileUtil.deleteRecursively(staging);
+			throw new IOException(Lang.get("cytrabackups.offsite.not_remote", id, target.describe()));
+		}
+		target.download(prefix + "manifest.bin", staging.resolve("manifest.bin"));
+		try {
+			target.download(prefix + "new-blobs.bin", staging.resolve("new-blobs.bin"));
+		} catch (java.nio.file.NoSuchFileException ignored) {
+		}
+		BackupMeta meta = Json.read(staging.resolve("meta.json"), BackupMeta.class);
+		if (meta.id != id) throw new IOException("Remote metadata of #" + id + " belongs to #" + meta.id);
+		Manifest manifest;
+		java.security.MessageDigest md = Hash.newDigest();
+		try (InputStream in = new java.security.DigestInputStream(Files.newInputStream(staging.resolve("manifest.bin")), md)) {
+			manifest = Manifest.read(in);
+			in.transferTo(java.io.OutputStream.nullOutputStream());
+		}
+		if (!meta.manifestSha256.isEmpty() && !meta.manifestSha256.equals(Hash.finish(md).hex())) {
+			throw new IOException("Downloaded manifest of #" + id + " is corrupt (checksum mismatch)");
+		}
+		List<BlobRef> todo = new ArrayList<>();
+		LongHashSet seen = new LongHashSet();
+		manifest.forEachBlob(ref -> {
+			if (seen.add(ref.hash().prefix64()) && !repo.blobs().exists(ref.hash())) todo.add(ref);
+		});
+		progress.addTotal(todo.size(), todo.stream().mapToLong(BlobRef::storedLength).sum());
+		Path tmpDir = dir.resolve("fetch-tmp");
+		Files.createDirectories(tmpDir);
+		List<Future<?>> futures = new ArrayList<>();
+		try {
+			for (BlobRef ref : todo) {
+				cancel.check();
+				java.util.concurrent.Callable<Void> task = () -> {
+					cancel.check();
+					Path tmp = tmpDir.resolve(ref.hash().hex() + ".blob");
+					target.download(blobKey(ref.hash()), tmp);
+					repo.blobs().adopt(tmp, ref.hash());
+					progress.addDone(1, ref.storedLength());
+					return null;
+				};
+				if (parallel) {
+					futures.add(workers.submit(task));
+				} else {
+					try {
+						task.call();
+					} catch (IOException | RuntimeException e) {
+						throw e;
+					} catch (Exception e) {
+						throw new IOException(e);
+					}
+				}
+			}
+			for (Future<?> f : futures) {
+				try {
+					f.get();
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					throw new CancellationException("interrupted");
+				} catch (ExecutionException e) {
+					futures.forEach(x -> x.cancel(true));
+					if (e.getCause() instanceof IOException io) throw io;
+					if (e.getCause() instanceof CancellationException ce) throw ce;
+					throw new IOException(e.getCause());
+				}
+			}
+		} catch (IOException | RuntimeException e) {
+			FileUtil.deleteRecursively(staging);
+			throw e;
+		} finally {
+			FileUtil.deleteRecursively(tmpDir);
+		}
+		repo.adopt(id);
+		synchronized (this) {
+			bindTarget(target.id()); // what was fetched from this destination is known to exist there
+			queue.uploads.remove(id);
+			queue.uploaded.add(id);
+			manifest.forEachBlob(ref -> uploadedBlobs.add(ref.hash().prefix64()));
+			save();
+			saveIndex();
+		}
+		return todo.size();
+	}
+
 	private void save() throws IOException {
 		Json.write(dir.resolve("queue.json"), queue);
 	}

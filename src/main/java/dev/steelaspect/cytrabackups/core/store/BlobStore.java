@@ -115,6 +115,22 @@ public final class BlobStore {
 		} catch (NoSuchFileException e) {
 			throw new CorruptBlobException(hash, "missing blob " + hash.shortHex());
 		}
+		return decode(file, hash);
+	}
+
+	/** Moves a blob file obtained elsewhere (an off-site copy) into the store after checking it decodes to {@code hash}. */
+	public void adopt(Path file, Hash hash) throws IOException {
+		decode(Files.readAllBytes(file), hash);
+		Path target = pathFor(hash);
+		Files.createDirectories(target.getParent());
+		try {
+			FileUtil.move(file, target, false);
+		} catch (FileAlreadyExistsException e) {
+			Files.deleteIfExists(file);
+		}
+	}
+
+	private static byte[] decode(byte[] file, Hash hash) throws IOException {
 		if (file.length < HEADER_SIZE || file[0] != MAGIC[0] || file[1] != MAGIC[1] || file[2] != MAGIC[2] || file[3] != MAGIC[3]) {
 			throw new CorruptBlobException(hash, "bad blob header " + hash.shortHex());
 		}

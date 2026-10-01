@@ -9,13 +9,18 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -57,6 +62,13 @@ public final class S3Target implements OffsiteTarget {
 		return URI.create(scheme + "://" + bucket + "." + hostPort + "/" + objectPath);
 	}
 
+	/** The bucket itself (for listing): path-style {@code /bucket}, virtual-hosted {@code /}. */
+	private URI bucketUri() {
+		String scheme = endpoint.getScheme();
+		String hostPort = endpoint.getPort() > 0 ? endpoint.getHost() + ":" + endpoint.getPort() : endpoint.getHost();
+		return URI.create(pathStyle ? scheme + "://" + hostPort + "/" + encodeSegment(bucket) : scheme + "://" + bucket + "." + hostPort + "/");
+	}
+
 	@Override
 	public void upload(String key, Path file) throws IOException {
 		String payloadHash = sha256Hex(file);
@@ -77,6 +89,56 @@ public final class S3Target implements OffsiteTarget {
 	public void delete(String key) throws IOException {
 		HttpResponse<String> res = send(signed("DELETE", uriFor(key), emptyHash()).DELETE().build());
 		if (res.statusCode() / 100 != 2 && res.statusCode() != 404) throw new IOException("S3 DELETE " + key + " failed: HTTP " + res.statusCode());
+	}
+
+	@Override
+	public void download(String key, Path file) throws IOException {
+		Path tmp = file.resolveSibling(file.getFileName() + ".part");
+		HttpResponse<Path> res;
+		try {
+			res = client.send(signed("GET", uriFor(key), emptyHash()).GET().build(), HttpResponse.BodyHandlers.ofFile(tmp));
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("interrupted", e);
+		}
+		if (res.statusCode() == 404) {
+			Files.deleteIfExists(tmp);
+			throw new NoSuchFileException(key);
+		}
+		if (res.statusCode() / 100 != 2) {
+			String body = Files.exists(tmp) ? Files.readString(tmp) : "";
+			Files.deleteIfExists(tmp);
+			throw new IOException("S3 GET " + key + " failed: HTTP " + res.statusCode() + " " + trim(body));
+		}
+		Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+	}
+
+	@Override
+	public List<String> list(String prefix) throws IOException {
+		List<String> keys = new ArrayList<>();
+		String token = null;
+		do {
+			String query = "list-type=2&prefix=" + encodeSegment(this.prefix + prefix) + (token == null ? "" : "&continuation-token=" + encodeSegment(token));
+			URI uri = URI.create(bucketUri() + "?" + query);
+			HttpResponse<String> res = send(signed("GET", uri, emptyHash()).GET().build());
+			if (res.statusCode() / 100 != 2) throw new IOException("S3 LIST " + prefix + " failed: HTTP " + res.statusCode() + " " + trim(res.body()));
+			String xml = res.body();
+			Matcher m = XML_KEY.matcher(xml);
+			while (m.find()) {
+				String key = unescapeXml(m.group(1));
+				if (key.startsWith(this.prefix)) keys.add(key.substring(this.prefix.length()));
+			}
+			Matcher t = XML_TOKEN.matcher(xml);
+			token = xml.contains("<IsTruncated>true</IsTruncated>") && t.find() ? unescapeXml(t.group(1)) : null;
+		} while (token != null);
+		return keys;
+	}
+
+	private static final Pattern XML_KEY = Pattern.compile("<Key>([^<]*)</Key>");
+	private static final Pattern XML_TOKEN = Pattern.compile("<NextContinuationToken>([^<]*)</NextContinuationToken>");
+
+	static String unescapeXml(String s) {
+		return s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&");
 	}
 
 	@Override
@@ -106,7 +168,7 @@ public final class S3Target implements OffsiteTarget {
 		String host = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
 		String canonicalHeaders = "host:" + host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + amzDate + "\n";
 		String signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-		String canonicalRequest = method + "\n" + uri.getRawPath() + "\n" + "" + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
+		String canonicalRequest = method + "\n" + uri.getRawPath() + "\n" + canonicalQuery(uri.getRawQuery()) + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
 		String scope = date + "/" + region + "/s3/aws4_request";
 		String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
 		byte[] kDate = hmac(("AWS4" + secretKey).getBytes(StandardCharsets.UTF_8), date);
@@ -120,6 +182,24 @@ public final class S3Target implements OffsiteTarget {
 			.header("x-amz-date", amzDate)
 			.header("x-amz-content-sha256", payloadHash)
 			.header("Authorization", auth);
+	}
+
+	/** SigV4 canonical query string: parameters sorted by name, each name and value RFC 3986 encoded. */
+	static String canonicalQuery(String rawQuery) {
+		if (rawQuery == null || rawQuery.isEmpty()) return "";
+		List<String> parts = new ArrayList<>();
+		for (String p : rawQuery.split("&")) {
+			int eq = p.indexOf('=');
+			String k = eq < 0 ? p : p.substring(0, eq);
+			String v = eq < 0 ? "" : p.substring(eq + 1);
+			parts.add(encodeSegment(decode(k)) + "=" + encodeSegment(decode(v)));
+		}
+		parts.sort(null);
+		return String.join("&", parts);
+	}
+
+	private static String decode(String s) {
+		return java.net.URLDecoder.decode(s.replace("+", "%2B"), StandardCharsets.UTF_8);
 	}
 
 	static byte[] hmac(byte[] key, String data) {

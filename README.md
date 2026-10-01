@@ -32,7 +32,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 - **Safe full restores:** you confirm, a countdown warns everyone, a backup of the current world is taken first, and the restore is checked before the world loads. Every restore can be undone with `/cbackup rollback`.
 - **Restore just an area** (chunks, a region or a radius around you), including entities. Done live when nobody is near it, otherwise at the next restart, and undone with one click.
 - **Compare, verify, export and import:** see what changed between backups, check a backup is intact, download any backup as a world `.zip`, or import an old world.
-- **Off-site copies** to S3-compatible storage (AWS, Cloudflare R2, Backblaze B2, MinIO and others), SFTP or WebDAV.
+- **Off-site copies** to S3-compatible storage (OVHcloud, AWS, Cloudflare R2, Backblaze B2, MinIO and others), SFTP or WebDAV, and back again: list what is stored there and fetch any backup onto a fresh server.
 - **Discord notifications** for finished and failed backups, restores and low disk space.
 - **Progress** in a boss bar or the action bar.
 - **Permissions** with LuckPerms or any mod using fabric-permissions-api, or plain op levels.
@@ -43,7 +43,7 @@ With the mod on your client, open it with `/cbackupgui`, the **Backups** button 
 
 - **Backups:** select a backup to see its details, then Info, Compare, Restore (whole world), Area (pick chunks on a map), Verify, Export, Pin, Comment or Delete. Create new backups with an optional comment.
 - **Restore:** show, cancel or apply a queued restore, undo the last restore, or cancel a countdown.
-- **Tools:** status, cleanup preview and cleanup, free space, import a world, off-site status and sync.
+- **Tools:** status, cleanup preview and cleanup, free space, import a world, off-site status, upload and list (with Fetch buttons).
 - **Settings:** every option, with an explanation on hover. Changes are saved and applied immediately. Passwords and keys are never shown.
 
 Buttons you don't have permission for are greyed out, and anything destructive asks you to confirm first.
@@ -75,7 +75,14 @@ All commands start with `/cbackup`, or the short alias `/cb` (`/cbackup help` li
 | `status` | Running job, next backup, disk space |
 | `cancel` | Stop the running job or countdown |
 | `reload` | Reload the config file after editing it by hand |
-| `offsite [status\|sync]` | Off-site copies |
+| `offsite [status\|sync\|list]` | Off-site copies: status, upload now, list what is stored there |
+| `offsite fetch <id>` | Download a backup from the off-site copy so it can be restored here |
+
+## Off-site copies
+
+Settings > Off-site. Example for OVHcloud Object Storage (S3): Type `s3`, Endpoint `https://s3.gra.io.cloud.ovh.net` (your region: `gra`, `sbg`, `bhs`, `de`, `uk`, `waw`...), Region `gra`, Bucket = your container, Access key and Secret key from an OVH S3 user, Path-style on. Every backup is mirrored there, deduplicated, and deleted backups are removed from the copy too (`Mirror deletes`).
+
+To get backups back, for example on a new server: same off-site settings, then `/cbackup offsite list` and `/cbackup offsite fetch <id>`; the backup is then local and `/cbackup restore <id>` works as usual.
 
 ## Permissions
 

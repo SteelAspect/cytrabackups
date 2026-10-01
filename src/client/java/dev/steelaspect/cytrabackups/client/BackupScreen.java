@@ -332,7 +332,8 @@ public final class BackupScreen extends Screen {
 				button("cytrabackups.gui.import", "cytrabackups.gui.tools.import.button", SMALL_W, this::runImport, () -> can(BackupListPayload.CAN_ADMIN)));
 			row("cytrabackups.gui.tools.offsite", "cytrabackups.gui.tools.offsite.tooltip",
 				button("cytrabackups.gui.show", "cytrabackups.gui.tools.offsite_status.tooltip", SMALL_W, () -> ClientState.run("offsite status"), () -> can(BackupListPayload.CAN_ADMIN)),
-				button("cytrabackups.gui.upload", "cytrabackups.gui.tools.upload.tooltip", SMALL_W, () -> ClientState.run("offsite sync"), () -> can(BackupListPayload.CAN_ADMIN)));
+				button("cytrabackups.gui.upload", "cytrabackups.gui.tools.upload.tooltip", SMALL_W, () -> ClientState.run("offsite sync"), () -> can(BackupListPayload.CAN_ADMIN)),
+				button("cytrabackups.gui.list", "cytrabackups.gui.tools.offsite_list.tooltip", SMALL_W, () -> ClientState.run("offsite list"), () -> can(BackupListPayload.CAN_ADMIN)));
 			row("cytrabackups.gui.tools.config", "cytrabackups.gui.tools.config.tooltip",
 				button("cytrabackups.gui.reload", "cytrabackups.gui.tools.reload.tooltip", SMALL_W, () -> ClientState.run("reload"), () -> can(BackupListPayload.CAN_ADMIN)));
 		}

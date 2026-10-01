@@ -524,7 +524,12 @@ public final class RestoreEngine {
 			if (l.startsWith("RECYCLE\t")) {
 				String path = l.substring(8);
 				Path r = FileUtil.resolveSafe(recycle, path);
-				if (Files.exists(r)) FileUtil.move(r, FileUtil.resolveSafe(world, path), true);
+				Path w = FileUtil.resolveSafe(world, path);
+				if (!Files.exists(r)) continue;
+				// Placing is an atomic rename, so a world file that still exists here was never moved out: the recycle bin
+				// only holds a partial copy of it (a crash during a copy to another disk). Keep the original.
+				if (Files.exists(w)) Files.delete(r);
+				else FileUtil.move(r, w, true);
 			}
 		}
 		FileUtil.deleteRecursively(staging);

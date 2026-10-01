@@ -43,9 +43,11 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,8 +60,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -118,7 +123,7 @@ public final class BackupManager {
 	private final ExecutorService offsiteExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-Offsite"));
 	private final ExecutorService offsiteWorkers = Executors.newFixedThreadPool(3, Services.threadFactory("CytraBackups-Upload"));
 	private final AtomicReference<Job> currentJob = new AtomicReference<>();
-	private volatile Progress offsiteProgress;
+	private final AtomicReference<Progress> offsiteProgress = new AtomicReference<>();
 	private final ProgressDisplay display = new ProgressDisplay();
 	private final Notifier notifier;
 	private final Map<String, Confirm> confirmations = new ConcurrentHashMap<>();
@@ -382,17 +387,30 @@ public final class BackupManager {
 		return m.comment.isBlank() ? Lang.get("cytrabackups.backup.describe", m.id, when) : Lang.get("cytrabackups.backup.describe_comment", m.id, when, m.comment);
 	}
 
+	/** Whole-world restore, or for an area backup: restore just that area again (live when possible). */
 	public void requestFullRestore(int id, CommandSourceStack src) {
 		Optional<BackupMeta> meta = services.repo.get(id);
 		if (meta.isEmpty()) {
 			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return;
 		}
+		BackupMeta m = meta.get();
+		if (m.partial && m.areaBoxes != null && !m.areaBoxes.isEmpty() && m.areaDimension != null) {
+			Identifier dim = Identifier.tryParse(m.areaDimension);
+			ServerLevel level = dim == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, dim));
+			if (level == null) {
+				src.sendFailure(Msg.error("cytrabackups.error.no_dimension", m.areaDimension));
+				return;
+			}
+			requestChunkRestore(id, level, new ChunkSelection(m.areaBoxes), src);
+			return;
+		}
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
-		prompt(src, Lang.get("cytrabackups.restore.full.question", describe(meta.get())),
-			Lang.get(config.restore.applyMode.equals("startup") ? "cytrabackups.restore.full.details_restart" : "cytrabackups.restore.full.details_stop",
-				config.restore.countdownSeconds),
+		String details = Lang.get(config.restore.applyMode.equals("startup") ? "cytrabackups.restore.full.details_restart" : "cytrabackups.restore.full.details_stop",
+			config.restore.countdownSeconds);
+		if (m.partial) details = Lang.get("cytrabackups.restore.partial.details") + " " + details;
+		prompt(src, Lang.get(m.partial ? "cytrabackups.restore.partial.question" : "cytrabackups.restore.full.question", describe(m)), details,
 			() -> startFullRestore(id, who, fb));
 	}
 
@@ -523,6 +541,8 @@ public final class BackupManager {
 		pre.only = affected::contains;
 		pre.scope = Lang.get("cytrabackups.restore.scope", sel.describe(), dimId);
 		pre.restoreTarget = id;
+		pre.areaDimension = dimId;
+		pre.areaBoxes = sel.boxes();
 		pre.progress = job.progress();
 		pre.cancel = job.cancel();
 		pre.beforeWrite = bytes -> checkSpace(s, bytes);
@@ -545,7 +565,8 @@ public final class BackupManager {
 		}
 		await(await(server.submit(() -> LiveChunkRestore.flush(level)), job), job);
 		long chunks = writes.stream().filter(w -> w.kind() == LiveChunkRestore.Kind.REGION).count();
-		fb.success(Lang.plural("cytrabackups.restore.area.done", chunks), chunks, dimId, id, preMeta.id);
+		fb.send(Msg.success(Lang.plural("cytrabackups.restore.area.done", chunks), chunks, dimId, id, preMeta.id).append(" ")
+			.append(Msg.dangerButton("cytrabackups.button.undo", Msg.command("restore", preMeta.id), "cytrabackups.hover.undo_area", preMeta.id)), false);
 		notifier.restore(Lang.get("cytrabackups.discord.area_restored"), Lang.get(Lang.plural("cytrabackups.restore.area.done", chunks), chunks, dimId, id, preMeta.id), false);
 	}
 
@@ -664,7 +685,7 @@ public final class BackupManager {
 			return;
 		}
 		String who = src.getTextName();
-		Feedback fb = Feedback.of(src);
+		Feedback fb = Feedback.of(src).and(Feedback.console());
 		prompt(src, Lang.get("cytrabackups.delete.question", describe(meta.get())), Lang.get("cytrabackups.delete.details"), () -> delete(id, who, fb));
 	}
 
@@ -722,11 +743,14 @@ public final class BackupManager {
 		job.progress().phase(Lang.get("cytrabackups.phase.plan_prune"));
 		PrunePolicy policy = policy();
 		Pruner pruner = new Pruner(policy, zone());
+		Set<Integer> needed = new HashSet<>();
+		PendingOperation queued = PendingOperationRunner.readPending(s.storage);
+		if (queued != null && queued.type != PendingOperation.Type.ROLLBACK) needed.add(queued.backupId);
 		List<Pruner.Decision> plan = pruner.plan(s.repo.list(), System.currentTimeMillis(), meta -> {
 			Map<Hash, Long> blobs = new HashMap<>();
 			s.repo.loadManifest(meta.id).forEachBlob(ref -> blobs.put(ref.hash(), ref.storedLength()));
 			return blobs;
-		});
+		}, needed);
 		List<Pruner.Decision> deletions = plan.stream().filter(d -> !d.keep()).toList();
 		if (dryRun) {
 			if (deletions.isEmpty()) {
@@ -858,6 +882,10 @@ public final class BackupManager {
 			fb.error("cytrabackups.error.reload_busy");
 			return;
 		}
+		if (offsiteProgress.get() != null) {
+			fb.error("cytrabackups.error.reload_upload");
+			return;
+		}
 		async(() -> reloadNow(fb));
 	}
 
@@ -865,6 +893,11 @@ public final class BackupManager {
 	public void saveConfigAndReload(CytraConfig edited, Feedback fb, Runnable after) {
 		if (currentJob.get() != null) {
 			fb.error("cytrabackups.error.save_busy");
+			server.execute(after);
+			return;
+		}
+		if (offsiteProgress.get() != null) {
+			fb.error("cytrabackups.error.save_upload");
 			server.execute(after);
 			return;
 		}
@@ -910,11 +943,11 @@ public final class BackupManager {
 
 	public void kickOffsite() {
 		CytraConfig cfg = config;
-		if (!cfg.offsite.enabled || offsiteProgress != null) return;
+		if (!cfg.offsite.enabled) return;
 		OffsiteSync sync = offsite;
 		if (!sync.hasWork()) return;
 		Progress p = new Progress();
-		offsiteProgress = p;
+		if (!offsiteProgress.compareAndSet(null, p)) return;
 		offsiteExecutor.execute(() -> {
 			try (OffsiteTarget target = createTarget(cfg)) {
 				OffsiteSync.Result r = sync.process(target, offsiteWorkers, !cfg.offsite.type.equals("sftp"), p, CancelToken.NONE);
@@ -924,7 +957,7 @@ public final class BackupManager {
 				CytraBackups.LOGGER.warn("CytraBackups: off-site sync failed (will retry later): {}", rootMessage(e));
 				notifier.backupFailure(Lang.get("cytrabackups.offsite.copy"), rootMessage(e));
 			} finally {
-				offsiteProgress = null;
+				offsiteProgress.compareAndSet(p, null);
 			}
 		});
 	}
@@ -957,7 +990,7 @@ public final class BackupManager {
 		out.add(Msg.tr("cytrabackups.offsite.summary", config.offsite.type, q.uploaded.size(), q.uploads.size()));
 		if (q.lastSuccess > 0) out.add(Msg.detail("cytrabackups.offsite.last", Msg.ago(q.lastSuccess, zone())));
 		if (!q.lastError.isBlank()) out.add(Msg.tr("cytrabackups.offsite.last_error", q.lastError).withStyle(ChatFormatting.RED));
-		Progress p = offsiteProgress;
+		Progress p = offsiteProgress.get();
 		if (p != null) out.add(Msg.detail("cytrabackups.offsite.progress", p.phase(), Formatting.percent(p.fraction())));
 		return out;
 	}
@@ -1077,7 +1110,7 @@ public final class BackupManager {
 			prune(false, "scheduler", Feedback.console());
 			return;
 		}
-		if (cfg.offsite.enabled && offsiteProgress == null && tickCounter % (20 * 300) == 0) kickOffsite();
+		if (cfg.offsite.enabled && offsiteProgress.get() == null && tickCounter % (20 * 300) == 0) kickOffsite();
 	}
 
 	private void checkLowDisk(boolean force) {

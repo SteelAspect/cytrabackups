@@ -129,6 +129,27 @@ class RestoreTest {
 	}
 
 	@Test
+	void interruptedRecycleCopyKeepsTheOriginalFile() throws Exception {
+		try (TestWorlds w = new TestWorlds(dir)) {
+			w.populate();
+			Map<String, String> before = w.snapshot();
+			Path recycle = w.storage.resolve("recycle/crash");
+			Path staging = dir.resolve(".world-staging-crash");
+			Files.createDirectories(recycle);
+			Files.createDirectories(staging);
+			// simulate: the copy of level.dat to a recycle bin on another disk was cut off; the world file is intact
+			Files.writeString(recycle.resolve("level.dat"), "half");
+			Files.writeString(w.storage.resolve("restore-journal.log"), String.join("\n",
+				"BEGIN\tcrash\t" + w.world.toAbsolutePath() + "\t" + recycle.toAbsolutePath() + "\t" + staging.toAbsolutePath(),
+				"RECYCLE\tlevel.dat", ""), StandardCharsets.UTF_8);
+			assertTrue(w.restore.recoverInterrupted(msg -> {
+			}));
+			assertEquals(before, w.snapshot(), "the intact world file wins over the partial recycle copy");
+			assertFalse(Files.exists(recycle));
+		}
+	}
+
+	@Test
 	void chunkRestoreOnlyTouchesSelectedChunks() throws Exception {
 		try (TestWorlds w = new TestWorlds(dir)) {
 			w.populate();

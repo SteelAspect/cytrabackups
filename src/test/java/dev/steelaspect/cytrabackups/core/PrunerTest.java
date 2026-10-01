@@ -53,6 +53,14 @@ class PrunerTest {
 	}
 
 	@Test
+	void backupNeededByAQueuedRestoreIsKept() throws Exception {
+		List<BackupMeta> list = new ArrayList<>();
+		for (int i = 1; i <= 10; i++) list.add(b(i, (10 - i) * HOUR));
+		Set<Integer> k = kept(new Pruner(policy(2, 0, 0, 0, 0, 0, 0), ZoneOffset.UTC).plan(list, NOW, x -> Map.of(), Set.of(3)));
+		assertEquals(Set.of(3, 9, 10), k, "the two newest plus the one a queued restore is waiting for");
+	}
+
+	@Test
 	void keepLastN() throws Exception {
 		List<BackupMeta> list = halfHourly(1);
 		Set<Integer> k = kept(plan(policy(5, 0, 0, 0, 0, 0, 0), list));

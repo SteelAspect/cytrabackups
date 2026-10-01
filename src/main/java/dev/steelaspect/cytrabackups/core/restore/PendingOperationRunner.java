@@ -120,6 +120,10 @@ public final class PendingOperationRunner {
 		req.only = only;
 		req.scope = only == null ? "" : Lang.get("cytrabackups.restore.scope", op.selection().describe(), op.dimension);
 		req.restoreTarget = op.type == PendingOperation.Type.ROLLBACK ? null : op.backupId;
+		if (only != null) {
+			req.areaDimension = op.dimension;
+			req.areaBoxes = op.boxes;
+		}
 		req.progress = progress;
 		req.cancel = cancel;
 		req.warnings = w -> log.accept("[pre-restore backup] " + w);

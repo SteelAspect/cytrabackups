@@ -1,5 +1,8 @@
 package dev.steelaspect.cytrabackups.core.backup;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** Metadata stored as {@code meta.json} next to every manifest. Plain fields for Gson. */
 public final class BackupMeta {
 	public int id;
@@ -30,6 +33,9 @@ public final class BackupMeta {
 	public String manifestSha256 = "";
 	/** For pre-restore backups: the backup that was about to be restored. */
 	public Integer restoreTarget;
+	/** For area backups: the dimension and chunk boxes they cover, so the area can be restored again. */
+	public String areaDimension;
+	public List<ChunkSelection.Box> areaBoxes;
 
 	public BackupMeta copy() {
 		BackupMeta m = new BackupMeta();
@@ -54,6 +60,8 @@ public final class BackupMeta {
 		m.durationMillis = durationMillis;
 		m.manifestSha256 = manifestSha256;
 		m.restoreTarget = restoreTarget;
+		m.areaDimension = areaDimension;
+		m.areaBoxes = areaBoxes == null ? null : new ArrayList<>(areaBoxes);
 		return m;
 	}
 }

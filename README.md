@@ -30,7 +30,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 - **Automatic backups** on an interval, at fixed times of day, when the server stops, or when the last player leaves. Skipped when nothing changed.
 - **Automatic cleanup** keeps the last N backups plus hourly, daily, weekly and monthly ones. Optional age and size limits. Pinned backups are never removed.
 - **Safe full restores:** you confirm, a countdown warns everyone, a backup of the current world is taken first, and the restore is checked before the world loads. Every restore can be undone with `/cbackup rollback`.
-- **Restore just an area** (chunks, a region or a radius around you), including entities. Done live when nobody is near it, otherwise at the next restart.
+- **Restore just an area** (chunks, a region or a radius around you), including entities. Done live when nobody is near it, otherwise at the next restart, and undone with one click.
 - **Compare, verify, export and import:** see what changed between backups, check a backup is intact, download any backup as a world `.zip`, or import an old world.
 - **Off-site copies** to S3-compatible storage (AWS, Cloudflare R2, Backblaze B2, MinIO and others), SFTP or WebDAV.
 - **Discord notifications** for finished and failed backups, restores and low disk space.

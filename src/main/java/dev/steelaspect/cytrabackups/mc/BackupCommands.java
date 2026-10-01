@@ -302,9 +302,7 @@ public final class BackupCommands {
 			String size = Formatting.bytes(b.totalSize);
 			line.append(ChatColumns.cell(Component.literal(size), size, sizeW, 8));
 			line.append(ChatColumns.cell(Component.literal(trigger(b)).withStyle(ChatFormatting.GRAY), trigger(b), trigW, 8));
-			if (canRestore && !b.partial) {
-				line.append(Msg.dangerButton("cytrabackups.button.restore", Msg.command("restore", b.id), "cytrabackups.hover.restore", b.id)).append(" ");
-			}
+			if (canRestore) line.append(restoreButton(b)).append(" ");
 			line.append(Msg.button("cytrabackups.button.info", Msg.command("info", b.id), "cytrabackups.hover.info", b.id));
 			src.sendSuccess(() -> line, false);
 		}
@@ -317,6 +315,11 @@ public final class BackupCommands {
 			src.sendSuccess(() -> nav, false);
 		}
 		return all.size();
+	}
+
+	/** Whole-world restore, or for an area backup a restore of just that area. */
+	private static MutableComponent restoreButton(BackupMeta b) {
+		return Msg.dangerButton("cytrabackups.button.restore", Msg.command("restore", b.id), b.partial ? "cytrabackups.hover.restore_area" : "cytrabackups.hover.restore", b.id);
 	}
 
 	private static String trigger(BackupMeta b) {
@@ -352,7 +355,7 @@ public final class BackupCommands {
 
 	private static MutableComponent actions(CommandSourceStack src, BackupManager m, BackupMeta b) {
 		List<MutableComponent> buttons = new ArrayList<>();
-		if (Perms.check(src, Perms.RESTORE) && !b.partial) buttons.add(Msg.dangerButton("cytrabackups.button.restore", Msg.command("restore", b.id), "cytrabackups.hover.restore", b.id));
+		if (Perms.check(src, Perms.RESTORE)) buttons.add(restoreButton(b));
 		if (Perms.check(src, Perms.VERIFY)) buttons.add(Msg.button("cytrabackups.button.verify", Msg.command("verify", b.id), "cytrabackups.hover.verify"));
 		if (Perms.check(src, Perms.EXPORT) && !b.partial) buttons.add(Msg.button("cytrabackups.button.export", Msg.command("export", b.id), "cytrabackups.hover.export"));
 		if (Perms.check(src, Perms.PIN)) {

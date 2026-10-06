@@ -166,7 +166,8 @@ public class CytraBackupsGameTest {
 	 * level (radius 2 = level 31) must leave chunk holders, as counted by the restore's own unload check, exactly
 	 * {@code holderRange(vd) - vd} chunks beyond the ticketed area and none further out.
 	 */
-	@GameTest(maxTicks = 400_000)
+	/** Own environment: runs after the round trip, so the two never start backups at the same time. */
+	@GameTest(environment = "cytrabackups-gametest:preview", maxTicks = 400_000)
 	public void previewShowsBackupBlocks(GameTestHelper helper) {
 		BackupManager m = BackupManager.get();
 		ServerLevel level = helper.getLevel();

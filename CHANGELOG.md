@@ -2,6 +2,17 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.6.1
+
+**Fix: slow off-site uploads.**
+
+- Off-site uploads became very slow once the server had been running for a few minutes: the list of uploaded pieces was saved to disk after every single piece instead of every 2 minutes. This affected off-site only backups and the regular off-site copy.
+- Off-site only: pieces an interrupted backup left on the server without uploading are uploaded first by the next backup, so cancelled or restarted backups cannot pile up local data.
+- Off-site only: the console logs upload progress about once a minute (pieces, size, speed, what is waiting), and `/cbackup status` shows it too.
+- `/cbackup cancel` and server stops no longer wait for uploads to catch up first.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.6.0
 
 **Off-site only: keep backups only at the off-site copy.**

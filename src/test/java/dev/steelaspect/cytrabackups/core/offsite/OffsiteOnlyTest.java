@@ -56,7 +56,8 @@ class OffsiteOnlyTest {
 		/** One backup the way BackupManager makes it in off-site only mode: streamed, then synced and evicted. */
 		BackupMeta backup(String comment, long bufferBytes) throws IOException {
 			StreamingUpload up = new StreamingUpload(sync, w.blobs, target, pool, 3, bufferBytes, () -> waited = true, s -> {
-			}, NO_DELAY);
+			}, s -> {
+			}, CancelToken.NONE, NO_DELAY);
 			w.blobs.setWriteHook(up);
 			BackupService.Outcome out = null;
 			try {
@@ -276,6 +277,32 @@ class OffsiteOnlyTest {
 			BackupMeta b = r.w.backup("b").meta();
 			assertEquals(40, b.newBlobs, "every chunk of the re-read region is stored here again");
 			assertEquals(40, r.localBlobs());
+		}
+	}
+
+	@Test
+	void uploadsDoNotRewriteTheIndexEveryTime() throws Exception {
+		try (Rig r = new Rig(dir, new OffsiteTest.FakeTarget())) {
+			r.sync.bindTarget(r.target.id());
+			r.sync.lastIndexSave = 0; // the last save was long ago: the next upload saves, the following ones do not
+			int before = r.sync.indexWrites;
+			for (int i = 0; i < 200; i++) r.sync.markUploaded(Hash.compute(("blob " + i).getBytes()));
+			assertEquals(1, r.sync.indexWrites - before, "one checkpoint, not one per upload");
+		}
+	}
+
+	@Test
+	void leftoversOfAnInterruptedBackupAreUploadedFirst() throws Exception {
+		try (Rig r = new Rig(dir, new OffsiteTest.FakeTarget())) {
+			r.w.populate();
+			r.sync.bindTarget(r.target.id());
+			for (int i = 0; i < 5; i++) r.w.blobs.put(("left behind " + i).repeat(10).getBytes(), 0, 100, false);
+			assertEquals(5, r.localBlobs());
+			r.backup("a", 1L << 30);
+			assertEquals(0, r.localBlobs(), "the leftovers were uploaded and removed here as well");
+			// they are not used by any backup: garbage collection deletes them off-site
+			GarbageCollector.Result gc = GarbageCollector.collect(r.w.repo, new Progress(), CancelToken.NONE);
+			assertEquals(5, r.sync.sweepOrphans(gc.live()));
 		}
 	}
 }

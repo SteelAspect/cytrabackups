@@ -65,7 +65,9 @@ public final class OffsiteSync {
 	private final Consumer<String> log;
 	private Queue queue;
 	private LongHashSet uploadedBlobs;
-	private long lastIndexSave = System.currentTimeMillis();
+	long lastIndexSave = System.currentTimeMillis();
+	/** Times the upload index was written (tests check that uploads do not rewrite it every time). */
+	int indexWrites;
 	private DataOutputStream session;
 
 	public OffsiteSync(BackupRepository repo, Path dir, Consumer<String> log) throws IOException {
@@ -553,6 +555,8 @@ public final class OffsiteSync {
 	}
 
 	private void saveIndex() throws IOException {
+		lastIndexSave = System.currentTimeMillis();
+		indexWrites++;
 		LongHashSet set = uploadedBlobs;
 		FileUtil.writeAtomic(dir.resolve("uploaded-blobs.bin"), out -> {
 			DeflaterOutputStream def = new DeflaterOutputStream(out);

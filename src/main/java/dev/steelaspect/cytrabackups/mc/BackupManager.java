@@ -124,6 +124,8 @@ public final class BackupManager {
 	private final ExecutorService offsiteWorkers = Executors.newCachedThreadPool(Services.threadFactory("CytraBackups-Upload"));
 	private final AtomicReference<Job> currentJob = new AtomicReference<>();
 	private final AtomicReference<Progress> offsiteProgress = new AtomicReference<>();
+	/** The running backup's uploads (off-site only mode), for the status. */
+	private volatile StreamingUpload activeStream;
 	private final ProgressDisplay display = new ProgressDisplay();
 	private final Notifier notifier;
 	private final Map<String, Confirm> confirmations = new ConcurrentHashMap<>();
@@ -311,8 +313,9 @@ public final class BackupManager {
 					// Upload-bound from here on: let the world save meanwhile instead of holding it for what can be hours.
 					CytraBackups.LOGGER.info("CytraBackups: uploading is slower than reading the world; world saving is back on for the rest of this backup");
 					SaveControl.restore(server, previous.get());
-				}, msg -> CytraBackups.LOGGER.warn("CytraBackups offsite: {}", msg));
+				}, msg -> CytraBackups.LOGGER.warn("CytraBackups offsite: {}", msg), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg), job.cancel());
 				s.blobs.setWriteHook(stream);
+				activeStream = stream;
 			}
 			BackupService.Request req = new BackupService.Request();
 			req.worldDir = worldDir;
@@ -344,6 +347,7 @@ public final class BackupManager {
 			}
 		} finally {
 			s.blobs.setWriteHook(null);
+			activeStream = null;
 			try {
 				if (stream != null) stream.close(out != null && out.meta() != null ? out.scan().manifest : null);
 			} finally {
@@ -1146,6 +1150,10 @@ public final class BackupManager {
 		Component last = st.lastBackup > 0 ? Msg.ago(st.lastBackup, zone()) : Msg.tr("cytrabackups.status.never");
 		lines.add(Msg.tr(Lang.plural("cytrabackups.status.backups", services.repo.list().size()), services.repo.list().size(), last, nextBackupDescription(now)));
 		List<Component> offsiteLines = offsiteStatus();
+		StreamingUpload stream = activeStream;
+		if (stream != null) {
+			lines.add(Msg.detail("cytrabackups.status.uploading", stream.uploadedBlobs(), Formatting.bytes(stream.uploadedBytes()), Formatting.bytes(stream.pendingBytes())));
+		}
 		async(() -> {
 			long free = FileUtil.usableSpace(services.storage);
 			Path game = ModEnv.gameDir();

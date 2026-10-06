@@ -171,7 +171,8 @@ class S3IntegrationTest {
 			fx.blobs.attachRemote(new OffsiteBlobs(fx.sync, () -> target("server3/", SECRET), pool, 8), true);
 			StreamingUpload up = new StreamingUpload(fx.sync, fx.blobs, t, pool, 8, 1, () -> {
 			}, msg -> {
-			});
+			}, msg -> {
+			}, CancelToken.NONE);
 			fx.blobs.setWriteHook(up);
 			BackupMeta a;
 			try {

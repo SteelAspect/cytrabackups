@@ -2,6 +2,10 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.7.0
+
+- **Restore preview**: `/cbackup preview <id> radius <0-7>` (or `chunks <dim> <x1> <z1> <x2> <z2>`, up to 256 chunks) turns that area of a backup into a Litematica schematic placed exactly where it was. With Cytra Syncmatica on the server it is shared right away, so everyone can load it from the Syncmatica menu and compare it with the world before restoring. Without it, the `.litematic` is saved in the backup folder under `previews/`. `/cbackup preview clear` removes the shared previews.
+
 ## 1.6.4
 
 - New mod icon: the Cytra logo (Mod Menu, Cytra Hub). No other changes.

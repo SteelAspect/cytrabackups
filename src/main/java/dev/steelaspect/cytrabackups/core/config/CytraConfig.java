@@ -102,6 +102,9 @@ public final class CytraConfig {
 		@Choices({"s3", "sftp", "webdav"})
 		public String type = "s3";
 		public boolean mirrorDeletes = true;
+		public boolean keepLocalCopy = true;
+		public int localBufferGiB = 4;
+		public int uploadThreads = 8;
 		public S3 s3 = new S3();
 		public Sftp sftp = new Sftp();
 		public WebDav webdav = new WebDav();

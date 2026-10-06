@@ -33,7 +33,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 - **Safe full restores:** you confirm, a countdown warns everyone, a backup of the current world is taken first, and the restore is checked before the world loads. Every restore can be undone with `/cbackup rollback`.
 - **Restore just an area** (chunks, a region or a radius around you), including entities. Done live when nobody is near it, otherwise at the next restart, and undone with one click.
 - **Compare, verify, export and import:** see what changed between backups, check a backup is intact, download any backup as a world `.zip`, or import an old world.
-- **Off-site copies** to S3-compatible storage (OVHcloud, AWS, Cloudflare R2, Backblaze B2, MinIO and others), SFTP or WebDAV, and back again: list what is stored there and fetch any backup onto a fresh server.
+- **Off-site copies** to S3-compatible storage (OVHcloud, AWS, Cloudflare R2, Backblaze B2, MinIO and others), SFTP or WebDAV, and back again: list what is stored there and fetch any backup onto a fresh server. **Off-site only** keeps the data only there, for servers with little disk space.
 - **Discord notifications** for finished and failed backups, restores and low disk space.
 - **Progress** in a boss bar or the action bar.
 - **Permissions** with LuckPerms or any mod using fabric-permissions-api, or plain op levels.
@@ -84,6 +84,16 @@ All commands start with `/cbackup`, or the short alias `/cb` (`/cbackup help` li
 Settings > Off-site. Example for OVHcloud Object Storage (S3): Type `s3`, Endpoint `https://s3.gra.io.cloud.ovh.net` (your region: `gra`, `sbg`, `bhs`, `de`, `uk`, `waw`...), Region `gra`, Bucket = your container, Access key and Secret key from an OVH S3 user, Path-style on. Every backup is mirrored there, deduplicated, and deleted backups are removed from the copy too (`Mirror deletes`).
 
 To get backups back, for example on a new server: same off-site settings, then `/cbackup offsite list` and `/cbackup offsite fetch <id>`; the backup is then local and `/cbackup restore <id>` works as usual.
+
+### Off-site only (small disks)
+
+Turn off Settings > Off-site > **Keep local copy** to keep backup data only off-site, for example a 32 GB world on a 55 GB disk. Each backup uploads its new pieces while it runs and deletes them here once uploaded, so the server only keeps the backup list plus at most **Upload buffer** (default 4 GiB) of data waiting for upload. Unchanged chunks are referenced, not uploaded again.
+
+- The first backup uploads the whole world, which can take hours: backups are stored as many small pieces (about one per chunk), so the number of uploads matters more than bandwidth. Raise **Parallel transfers** (default 8, up to 32) to speed it up. If it is interrupted (restart, connection loss), the next try continues where it stopped.
+- While a backup waits for uploads, world saving is turned back on so the world is not held unsaved for hours. Files read after that point can be a few minutes newer than the rest.
+- Restores, area restores, verify and export download what they need. Restoring a recent backup only downloads the region files that changed since.
+- Cleanup deletes data off-site that no remaining backup uses (with Mirror deletes on).
+- The off-site settings are pinned to where the data is: pointing them somewhere else is refused until they are changed back.
 
 ## Permissions
 

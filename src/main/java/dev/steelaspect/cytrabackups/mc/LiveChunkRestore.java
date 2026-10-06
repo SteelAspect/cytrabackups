@@ -3,7 +3,6 @@ package dev.steelaspect.cytrabackups.mc;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
-import dev.steelaspect.cytrabackups.core.manifest.ChunkRef;
 import dev.steelaspect.cytrabackups.core.manifest.FileEntry;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.manifest.ManifestEntry;
@@ -169,7 +168,7 @@ public final class LiveChunkRestore {
 				ManifestEntry entry = manifest.get(path);
 				Map<Integer, byte[]> backupPayloads = new HashMap<>();
 				if (entry instanceof RegionEntry r) {
-					for (ChunkRef c : r.chunks()) if (indices.contains(c.index())) backupPayloads.put(c.index(), ChunkPayloads.payload(blobs, c));
+					backupPayloads.putAll(ChunkPayloads.payloads(blobs, r.chunks().stream().filter(c -> indices.contains(c.index())).toList()));
 				} else if (entry instanceof FileEntry f) {
 					Path tmp = java.nio.file.Files.createTempFile("cytrabackups-region", ".mca");
 					try {

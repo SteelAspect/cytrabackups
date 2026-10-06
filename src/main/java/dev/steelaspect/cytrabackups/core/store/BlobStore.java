@@ -15,6 +15,8 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
@@ -23,6 +25,9 @@ import java.util.function.BiConsumer;
  * {@code blobs/ab/cd/<sha256>}, keyed by the SHA-256 of its <em>uncompressed</em> bytes.
  *
  * <p>Blob file layout: {@code "CYB1"} magic, 1 byte codec id, 4 byte raw length, payload.
+ *
+ * <p>With a {@link RemoteBlobs} attached, blobs missing here are read from the off-site copy, and (in off-site only mode)
+ * content already stored off-site counts as existing, so it is not written here again.
  */
 public final class BlobStore {
 	private static final byte[] MAGIC = {'C', 'Y', 'B', '1'};
@@ -32,6 +37,32 @@ public final class BlobStore {
 	private final Path tmp;
 	private final Compression compression;
 	private final boolean fsync;
+	private volatile RemoteBlobs remote;
+	private volatile boolean remoteDedup;
+	private volatile WriteHook hook;
+
+	/** The off-site copy of this store. */
+	public interface RemoteBlobs {
+		/** True if the blob is known to be stored off-site. */
+		boolean has(Hash hash);
+
+		/** Downloads the blob file (header and payload) into {@code dest}; {@link NoSuchFileException} if it is not there. */
+		void download(Hash hash, Path dest) throws IOException;
+
+		/** Downloads several blob files, {@code dests.get(i)} for {@code hashes.get(i)}, in parallel where possible. */
+		default void downloadAll(List<Hash> hashes, List<Path> dests) throws IOException {
+			for (int i = 0; i < hashes.size(); i++) download(hashes.get(i), dests.get(i));
+		}
+	}
+
+	/** Watches blobs being written (off-site only mode: limits local space and uploads them right away). */
+	public interface WriteHook {
+		/** Called before a new blob of about {@code bytes} is written; may block, or throw to abort. */
+		void beforeWrite(long bytes) throws IOException;
+
+		/** Called after a new blob file was written. */
+		void written(Hash hash, long storedBytes);
+	}
 
 	public BlobStore(Path root, Path tmp, Compression compression, boolean fsync) throws IOException {
 		this.root = root;
@@ -44,6 +75,23 @@ public final class BlobStore {
 
 	public Path root() {
 		return root;
+	}
+
+	/**
+	 * Attaches (or with null detaches) the off-site copy. {@code dedup}: content stored off-site counts as existing and
+	 * is not written here again (off-site only mode).
+	 */
+	public void attachRemote(RemoteBlobs remote, boolean dedup) {
+		this.remote = remote;
+		this.remoteDedup = remote != null && dedup;
+	}
+
+	public RemoteBlobs remote() {
+		return remote;
+	}
+
+	public void setWriteHook(WriteHook hook) {
+		this.hook = hook;
 	}
 
 	public Path pathFor(Hash hash) {
@@ -66,6 +114,12 @@ public final class BlobStore {
 		return put(hash, data, off, len, compression.encode(data, off, len, knownCompressed));
 	}
 
+	/** True if the content only needs a reference: it is stored off-site and this store keeps nothing locally. */
+	private boolean storedRemotely(Hash hash) {
+		RemoteBlobs r = remote;
+		return remoteDedup && r != null && r.has(hash);
+	}
+
 	public Compression compression() {
 		return compression;
 	}
@@ -83,6 +137,10 @@ public final class BlobStore {
 		Path target = pathFor(hash);
 		long existing = storedSize(target);
 		if (existing >= 0) return new PutResult(new BlobRef(hash, len, existing), false);
+		long stored = HEADER_SIZE + (long) enc.length();
+		if (storedRemotely(hash)) return new PutResult(new BlobRef(hash, len, stored), false);
+		WriteHook h = hook;
+		if (h != null) h.beforeWrite(stored);
 
 		Files.createDirectories(target.getParent());
 		Path temp = tmp.resolve(UUID.randomUUID() + ".blob");
@@ -105,7 +163,8 @@ public final class BlobStore {
 			Files.deleteIfExists(temp);
 			return new PutResult(new BlobRef(hash, len, Math.max(0, storedSize(target))), false);
 		}
-		return new PutResult(new BlobRef(hash, len, HEADER_SIZE + (long) enc.length()), true);
+		if (h != null) h.written(hash, stored);
+		return new PutResult(new BlobRef(hash, len, stored), true);
 	}
 
 	public boolean exists(Hash hash) {
@@ -125,16 +184,69 @@ public final class BlobStore {
 		}
 	}
 
-	/** Reads and decompresses a blob, verifying its length and SHA-256. */
+	/** Reads and decompresses a blob, verifying its length and SHA-256. Blobs missing here come from the off-site copy. */
 	public byte[] read(Hash hash) throws IOException {
 		Path p = pathFor(hash);
 		byte[] file;
 		try {
 			file = Files.readAllBytes(p);
 		} catch (NoSuchFileException e) {
-			throw new CorruptBlobException(hash, "missing blob " + hash.shortHex());
+			file = readRemote(hash);
 		}
 		return decode(file, hash);
+	}
+
+	/** Reads several blobs (in order); the ones only stored off-site are downloaded together. */
+	public List<byte[]> readAll(List<Hash> hashes) throws IOException {
+		byte[][] files = new byte[hashes.size()][];
+		List<Integer> missing = new ArrayList<>();
+		for (int i = 0; i < hashes.size(); i++) {
+			try {
+				files[i] = Files.readAllBytes(pathFor(hashes.get(i)));
+			} catch (NoSuchFileException e) {
+				missing.add(i);
+			}
+		}
+		RemoteBlobs r = remote;
+		if (!missing.isEmpty()) {
+			if (r == null) {
+				Hash h = hashes.get(missing.getFirst());
+				throw new CorruptBlobException(h, "missing blob " + h.shortHex());
+			}
+			List<Hash> want = new ArrayList<>();
+			List<Path> dests = new ArrayList<>();
+			for (int i : missing) {
+				want.add(hashes.get(i));
+				dests.add(tmp.resolve(UUID.randomUUID() + ".remote"));
+			}
+			try {
+				try {
+					r.downloadAll(want, dests);
+				} catch (NoSuchFileException e) {
+					throw new CorruptBlobException(want.getFirst(), "missing blob, also not in the off-site copy: " + e.getMessage());
+				}
+				for (int j = 0; j < missing.size(); j++) files[missing.get(j)] = Files.readAllBytes(dests.get(j));
+			} finally {
+				for (Path d : dests) Files.deleteIfExists(d);
+			}
+		}
+		List<byte[]> out = new ArrayList<>(hashes.size());
+		for (int i = 0; i < hashes.size(); i++) out.add(decode(files[i], hashes.get(i)));
+		return out;
+	}
+
+	private byte[] readRemote(Hash hash) throws IOException {
+		RemoteBlobs r = remote;
+		if (r == null) throw new CorruptBlobException(hash, "missing blob " + hash.shortHex());
+		Path dest = tmp.resolve(UUID.randomUUID() + ".remote");
+		try {
+			r.download(hash, dest);
+			return Files.readAllBytes(dest);
+		} catch (NoSuchFileException e) {
+			throw new CorruptBlobException(hash, "missing blob " + hash.shortHex() + ", also not in the off-site copy");
+		} finally {
+			Files.deleteIfExists(dest);
+		}
 	}
 
 	/** Moves a blob file obtained elsewhere (an off-site copy) into the store after checking it decodes to {@code hash}. */

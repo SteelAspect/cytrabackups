@@ -2,6 +2,20 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.6.0
+
+**Off-site only: keep backups only at the off-site copy.**
+
+- New setting **Keep local copy** (`offsite.keepLocalCopy`, on by default). Turned off, every backup uploads its new data while it runs and deletes it on this server once uploaded. Only the backup list and at most **Upload buffer** (`offsite.localBufferGiB`, default 4) of data waiting for upload stay here, so a world bigger than the free disk space can be backed up.
+- Unchanged data is referenced, not uploaded again. An interrupted backup (restart, lost connection) continues where it stopped on the next try.
+- If uploading is slower than reading the world, world saving is turned back on for the rest of that backup instead of holding the world unsaved for hours.
+- Restores, area restores, verify and export download the data they need from the off-site copy. Fetching a backup in this mode only fetches its file list.
+- Cleanup also deletes off-site data that only the removed backups used, and leftovers of interrupted backups.
+- New setting **Parallel transfers** (`offsite.uploadThreads`, default 8, was a fixed 3): uploads and downloads at the same time. Backups are many small pieces, so this matters more than bandwidth.
+- Fix: data uploaded again shortly after being queued for off-site deletion (content that came back, e.g. after a restore) could be deleted off-site by that older queued deletion.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.5.1
 
 **Automatic backups start off.**

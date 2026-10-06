@@ -12,7 +12,14 @@ import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.offsite.S3Target;
 import dev.steelaspect.cytrabackups.core.prune.GarbageCollector;
 import dev.steelaspect.cytrabackups.core.backup.Verifier;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteBlobs;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
+import dev.steelaspect.cytrabackups.core.offsite.StreamingUpload;
+import dev.steelaspect.cytrabackups.core.backup.PathFilter;
+import dev.steelaspect.cytrabackups.core.restore.ContentHasher;
+import dev.steelaspect.cytrabackups.core.restore.RestoreEngine;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.List;
 import java.io.IOException;
 import java.io.InputStream;
@@ -151,6 +158,47 @@ class S3IntegrationTest {
 			assertTrue(blobs > 0);
 			assertTrue(Verifier.verify(fx.repo, id, fx.workers, new Progress(), CancelToken.NONE).ok(), "fetched blobs verify");
 			assertEquals("to fetch", fx.repo.get(id).orElseThrow().comment);
+		}
+	}
+
+	@Test
+	void offsiteOnlyKeepsDataAtS3AndRestoresFromIt(@TempDir Path dir) throws Exception {
+		ExecutorService pool = Executors.newCachedThreadPool();
+		try (Fixture fx = new Fixture(dir)) {
+			Path region = fx.world.resolve("region/r.0.0.mca");
+			String before = ContentHasher.region(region).hex();
+			S3Target t = target("server3/", SECRET);
+			fx.blobs.attachRemote(new OffsiteBlobs(fx.sync, () -> target("server3/", SECRET), pool, 8), true);
+			StreamingUpload up = new StreamingUpload(fx.sync, fx.blobs, t, pool, 8, 1, () -> {
+			}, msg -> {
+			});
+			fx.blobs.setWriteHook(up);
+			BackupMeta a;
+			try {
+				a = fx.backup("a");
+				up.finish();
+			} finally {
+				fx.blobs.setWriteHook(null);
+				up.close();
+			}
+			fx.sync.enqueueUpload(a.id);
+			fx.sync.process(t, pool, 8, new Progress(), CancelToken.NONE);
+			fx.sync.evictUploaded(fx.blobs);
+			long[] local = {0};
+			fx.blobs.forEach((h, attrs) -> local[0]++);
+			assertEquals(0, local[0], "nothing kept locally");
+			Set<String> expected = new TreeSet<>();
+			for (String k : fx.expectedKeys(a)) expected.add("server3/" + k);
+			assertEquals(expected, remoteKeys("server3/"), "the whole backup is at S3");
+			assertTrue(Verifier.verify(fx.repo, a.id, fx.workers, new Progress(), CancelToken.NONE).ok(), "verified through S3");
+
+			Files.delete(region);
+			RestoreEngine restore = new RestoreEngine(fx.blobs, fx.workers, fx.storage, true);
+			restore.execute(restore.planFull(fx.repo.loadManifest(a.id), a.id, false, fx.world, PathFilter.ALL, List.of(), new Progress(), CancelToken.NONE),
+				fx.world, new Progress(), CancelToken.NONE);
+			assertEquals(before, ContentHasher.region(region).hex(), "restored from S3");
+		} finally {
+			pool.shutdownNow();
 		}
 	}
 }

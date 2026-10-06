@@ -2,6 +2,7 @@ package dev.steelaspect.cytrabackups.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import dev.steelaspect.cytrabackups.CytraBackups;
+import dev.steelaspect.cytrabackups.mc.BackupCommands;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ import org.lwjgl.glfw.GLFW;
  * Map-style chunk selector. Chunks the client has loaded are painted once into a small texture from their top-block
  * map colours (a few hundred chunks per tick) and the map is drawn with a single blit, so the frame cost does not grow
  * with the zoom level or screen size. Drag with the left mouse button to select a rectangle, or type chunk coordinates.
- * The selection is restored from the chosen backup in the selected dimension.
+ * The selection is restored from the chosen backup in the selected dimension, now or later with a copied command.
  */
 public final class ChunkSelectorScreen extends Screen {
 	private static final int SAMPLES = 4; // map texels per chunk side (one texel = 4x4 blocks)
@@ -103,7 +104,9 @@ public final class ChunkSelectorScreen extends Screen {
 
 		Button restore = Button.builder(Component.translatable("cytrabackups.gui.area.restore"), b -> restore()).width(150)
 			.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.area.restore.tooltip", backupId))).build();
-		row(height - 28, 8, List.of(restore, Button.builder(CommonComponents.GUI_BACK, b -> onClose()).width(150).build()));
+		Button copy = Button.builder(Component.translatable("cytrabackups.gui.area.copy"), b -> copyCommand()).width(150)
+			.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.area.copy.tooltip", backupId))).build();
+		row(height - 28, 8, List.of(restore, copy, Button.builder(CommonComponents.GUI_BACK, b -> onClose()).width(150).build()));
 		syncBoxes();
 	}
 
@@ -289,14 +292,28 @@ public final class ChunkSelectorScreen extends Screen {
 		}
 	}
 
-	/** The server asks for confirmation, then restores the chunks live or queues them. */
-	private void restore() {
+	/** The restore command for the selection (without the leading /cbackup), or null with a hint if nothing is selected. */
+	private String restoreCommand() {
 		if (selX1 == null || dimension == null || dimension.isEmpty()) {
 			ClientState.log(Component.translatable("cytrabackups.gui.area.nothing_selected"), true);
-			return;
+			return null;
 		}
 		int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
-		ClientState.run("restore " + backupId + " chunks " + dimension + " " + x1 + " " + z1 + " " + x2 + " " + z2);
+		return "restore " + backupId + " chunks " + dimension + " " + x1 + " " + z1 + " " + x2 + " " + z2;
+	}
+
+	/** The server asks for confirmation, then restores the chunks live or queues them. */
+	private void restore() {
+		String command = restoreCommand();
+		if (command != null) ClientState.run(command);
+	}
+
+	/** Copies the restore command, to run later from chat (e.g. once nobody is near the area, so it can be restored live). */
+	private void copyCommand() {
+		String command = restoreCommand();
+		if (command == null) return;
+		minecraft.keyboardHandler.setClipboard("/" + BackupCommands.ROOT + " " + command);
+		ClientState.log(Component.translatable("cytrabackups.gui.area.copied"), false);
 	}
 
 	/** Creates the map texture for the client's loaded area around the player, once per screen visit. */

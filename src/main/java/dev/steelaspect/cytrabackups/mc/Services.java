@@ -7,7 +7,11 @@ import dev.steelaspect.cytrabackups.core.backup.BackupSettings;
 import dev.steelaspect.cytrabackups.core.backup.PathFilter;
 import dev.steelaspect.cytrabackups.core.compress.Codec;
 import dev.steelaspect.cytrabackups.core.compress.Compression;
+import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteBlobs;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
+import dev.steelaspect.cytrabackups.core.offsite.OffsiteTarget;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperationRunner;
 import dev.steelaspect.cytrabackups.core.restore.RestoreEngine;
 import dev.steelaspect.cytrabackups.core.store.BlobStore;
@@ -31,6 +35,12 @@ public final class Services implements AutoCloseable {
 	public final BackupEngine engine;
 	public final BackupService backups;
 	public final RestoreEngine restore;
+	public final OffsiteSync offsite;
+	/** Reads blobs that are only stored off-site; null when off-site copies are off and nothing lives only there. */
+	private final OffsiteBlobs remote;
+	private final ExecutorService remotePool;
+	/** Off-site only mode is active: new backup data is uploaded and deleted here. */
+	public final boolean offsiteOnly;
 
 	private Services(CytraConfig config, Path storage) throws IOException {
 		this.config = config;
@@ -43,6 +53,32 @@ public final class Services implements AutoCloseable {
 		this.engine = new BackupEngine(blobs, workers, parallelism, settings(config));
 		this.backups = new BackupService(repo, engine, ModEnv.minecraftVersion(), ModEnv.modVersion());
 		this.restore = new RestoreEngine(blobs, workers, storage, config.trustModificationTime);
+		this.offsite = new OffsiteSync(repo, storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
+		if (config.offsite.enabled || offsite.hasRemoteOnlyData()) {
+			this.remotePool = Executors.newCachedThreadPool(threadFactory("CytraBackups-Download"));
+			this.remote = new OffsiteBlobs(offsite, () -> OffsiteTargets.create(config, storage), remotePool, OffsiteTargets.threads(config));
+			boolean sameTarget = boundToConfiguredTarget(config, storage, offsite);
+			this.offsiteOnly = OffsiteTargets.offsiteOnly(config) && sameTarget;
+			if (OffsiteTargets.offsiteOnly(config) && !sameTarget) {
+				CytraBackups.LOGGER.warn("CytraBackups: off-site only mode is paused: the off-site settings are incomplete or do not point to where the backup data is ({})",
+					offsite.queue().targetId.isEmpty() ? "nothing uploaded yet" : offsite.queue().targetId);
+			}
+			blobs.attachRemote(remote, offsiteOnly);
+		} else {
+			this.remotePool = null;
+			this.remote = null;
+			this.offsiteOnly = false;
+		}
+	}
+
+	/** True if the configured destination is the one the upload state belongs to (or nothing was uploaded yet). */
+	private static boolean boundToConfiguredTarget(CytraConfig config, Path storage, OffsiteSync offsite) {
+		String bound = offsite.queue().targetId;
+		try (OffsiteTarget t = OffsiteTargets.create(config, storage)) {
+			return bound.isEmpty() || bound.equals(t.id());
+		} catch (Exception e) {
+			return false;
+		}
 	}
 
 	public static Services open(CytraConfig config, Path storage) throws IOException {
@@ -85,6 +121,14 @@ public final class Services implements AutoCloseable {
 
 	@Override
 	public void close() {
+		if (remote != null) {
+			try {
+				remote.close();
+			} catch (IOException e) {
+				CytraBackups.LOGGER.warn("CytraBackups: closing the off-site connection failed: {}", e.getMessage());
+			}
+			remotePool.shutdownNow();
+		}
 		workers.shutdownNow();
 		try {
 			workers.awaitTermination(10, TimeUnit.SECONDS);

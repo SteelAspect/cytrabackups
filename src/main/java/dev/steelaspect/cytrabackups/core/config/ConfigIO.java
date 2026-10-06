@@ -59,6 +59,8 @@ public final class ConfigIO {
 		if (alg.equals("deflate") && (c.compression.level < 1 || c.compression.level > 9)) p.add(Lang.get("cytrabackups.config.problem.range_for", "compression.level", 1, 9, "deflate"));
 		if (c.compression.minSavingsPercent > 100) p.add(Lang.get("cytrabackups.config.problem.range", "compression.minSavingsPercent", 0, 100));
 		if (c.offsite.sftp.port < 1 || c.offsite.sftp.port > 65535) p.add(Lang.get("cytrabackups.config.problem.range", "offsite.sftp.port", 1, 65535));
+		if (c.offsite.localBufferGiB < 1) p.add(Lang.get("cytrabackups.config.problem.at_least", "offsite.localBufferGiB", 1));
+		if (c.offsite.uploadThreads < 1 || c.offsite.uploadThreads > 32) p.add(Lang.get("cytrabackups.config.problem.range", "offsite.uploadThreads", 1, 32));
 		if (c.restore.maxChunks < 1) p.add(Lang.get("cytrabackups.config.problem.at_least", "restore.maxChunks", 1));
 		for (Map.Entry<String, Integer> e : c.permissions.defaultLevels.entrySet()) {
 			if (e.getValue() == null || e.getValue() < 0 || e.getValue() > 4) p.add(Lang.get("cytrabackups.config.problem.range", "permissions.defaultLevels." + e.getKey(), 0, 4));

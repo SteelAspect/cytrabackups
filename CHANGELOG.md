@@ -2,6 +2,57 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.6.3
+
+- The area restore screen has a **Copy command** button: it copies the `/cbackup restore` command for the selected chunks, so you can run it from chat later, for example once you are away from the area. Chunks nobody is near are restored right away instead of at the next restart.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/` (the button needs it in your game; the server works with 1.6.2 or newer).
+
+## 1.6.2
+
+**Faster off-site cleanup, and settings save during uploads.**
+
+- Deleting data from the off-site copy (after deleting or pruning backups) runs with **Parallel transfers** at a time instead of one by one, and its progress is shown (it used to sit at 0%). A backup's own files are deleted before its data.
+- Fix: if a piece was queued for deletion off-site and the same content was uploaded again while the deletions ran (for example a chunk back in an older state after a restore), the old deletion could remove the new upload.
+- Saving settings or `/cbackup reload` during an off-site upload no longer fails: the settings are saved right away and take effect as soon as the upload has finished. The settings screen shows the saved values immediately.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
+## 1.6.1
+
+**Fix: slow off-site uploads.**
+
+- Off-site uploads became very slow once the server had been running for a few minutes: the list of uploaded pieces was saved to disk after every single piece instead of every 2 minutes. This affected off-site only backups and the regular off-site copy.
+- Off-site only: pieces an interrupted backup left on the server without uploading are uploaded first by the next backup, so cancelled or restarted backups cannot pile up local data.
+- Off-site only: the console logs upload progress about once a minute (pieces, size, speed, what is waiting), and `/cbackup status` shows it too.
+- `/cbackup cancel` and server stops no longer wait for uploads to catch up first.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
+## 1.6.0
+
+**Off-site only: keep backups only at the off-site copy.**
+
+- New setting **Keep local copy** (`offsite.keepLocalCopy`, on by default). Turned off, every backup uploads its new data while it runs and deletes it on this server once uploaded. Only the backup list and at most **Upload buffer** (`offsite.localBufferGiB`, default 4) of data waiting for upload stay here, so a world bigger than the free disk space can be backed up.
+- Unchanged data is referenced, not uploaded again. An interrupted backup (restart, lost connection) continues where it stopped on the next try.
+- If uploading is slower than reading the world, world saving is turned back on for the rest of that backup instead of holding the world unsaved for hours.
+- Restores, area restores, verify and export download the data they need from the off-site copy. Fetching a backup in this mode only fetches its file list.
+- Cleanup also deletes off-site data that only the removed backups used, and leftovers of interrupted backups.
+- New setting **Parallel transfers** (`offsite.uploadThreads`, default 8, was a fixed 3): uploads and downloads at the same time. Backups are many small pieces, so this matters more than bandwidth.
+- Fix: data uploaded again shortly after being queued for off-site deletion (content that came back, e.g. after a restore) could be deleted off-site by that older queued deletion.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
+## 1.5.1
+
+**Automatic backups start off.**
+
+- On a fresh install automatic backups are now disabled (`schedule.enabled` defaults to `false`). Turn them on under Settings > Schedule > Enabled, or set `schedule.enabled` to `true` in `config/cytrabackups.json` and run `/cbackup reload`. Manual backups work as before.
+- Existing configs are not changed: a server that already has `"enabled": true` keeps its automatic backups.
+- `/cbackup status` says where to turn automatic backups on while they are off.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.5.0
 
 **Smaller backups: chunk recompression.**

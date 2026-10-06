@@ -6,7 +6,9 @@ import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Formatting;
 import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.Lang;
+import dev.steelaspect.cytrabackups.core.LongHashSet;
 import dev.steelaspect.cytrabackups.core.Progress;
+import dev.steelaspect.cytrabackups.core.ReloadGate;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.BackupService;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
@@ -21,9 +23,7 @@ import dev.steelaspect.cytrabackups.core.diff.BackupDiff;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteTarget;
-import dev.steelaspect.cytrabackups.core.offsite.S3Target;
-import dev.steelaspect.cytrabackups.core.offsite.SftpTarget;
-import dev.steelaspect.cytrabackups.core.offsite.WebDavTarget;
+import dev.steelaspect.cytrabackups.core.offsite.StreamingUpload;
 import dev.steelaspect.cytrabackups.core.prune.GarbageCollector;
 import dev.steelaspect.cytrabackups.core.prune.PrunePolicy;
 import dev.steelaspect.cytrabackups.core.prune.Pruner;
@@ -42,6 +42,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -121,9 +122,18 @@ public final class BackupManager {
 	private final ExecutorService jobExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-Job"));
 	private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-IO"));
 	private final ExecutorService offsiteExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-Offsite"));
-	private final ExecutorService offsiteWorkers = Executors.newFixedThreadPool(3, Services.threadFactory("CytraBackups-Upload"));
+	private final ExecutorService offsiteWorkers = Executors.newCachedThreadPool(Services.threadFactory("CytraBackups-Upload"));
 	private final AtomicReference<Job> currentJob = new AtomicReference<>();
 	private final AtomicReference<Progress> offsiteProgress = new AtomicReference<>();
+	/** The running backup's uploads (off-site only mode), for the status. */
+	private volatile StreamingUpload activeStream;
+	/** Keeps reloads and off-site syncs apart; a reload asked for during a sync runs right after it. */
+	private final ReloadGate<PendingReload> reloadGate = new ReloadGate<>();
+	/** Settings already written to the config file but not applied yet (they wait for the running off-site sync). */
+	private volatile CytraConfig pendingConfig;
+
+	private record PendingReload(Feedback fb, Runnable after) {
+	}
 	private final ProgressDisplay display = new ProgressDisplay();
 	private final Notifier notifier;
 	private final Map<String, Confirm> confirmations = new ConcurrentHashMap<>();
@@ -147,7 +157,7 @@ public final class BackupManager {
 		this.levelName = worldDir.getFileName().toString();
 		this.config = ModEnv.loadConfigOrDefaults();
 		this.services = Services.open(config, ModEnv.storageFor(config, levelName));
-		this.offsite = new OffsiteSync(services.repo, services.storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
+		this.offsite = services.offsite;
 		this.notifier = new Notifier(config, levelName);
 	}
 
@@ -163,6 +173,12 @@ public final class BackupManager {
 
 	public CytraConfig config() {
 		return config;
+	}
+
+	/** The settings as last saved: what the settings screen shows and edits, even before they are applied. */
+	public CytraConfig editableConfig() {
+		CytraConfig pending = pendingConfig;
+		return pending != null ? pending : config;
 	}
 
 	public Services services() {
@@ -281,6 +297,11 @@ public final class BackupManager {
 		});
 	}
 
+	/** Off-site only: most bytes of not yet uploaded backup data kept here. */
+	private static long bufferBytes(CytraConfig cfg) {
+		return Math.max(1, cfg.offsite.localBufferGiB) * 1024L * 1024L * 1024L;
+	}
+
 	private void checkSpace(Services s, long bytesToWrite) {
 		long free = FileUtil.usableSpace(s.storage);
 		long reserve = config.minFreeSpaceMiB * 1024L * 1024L;
@@ -294,10 +315,22 @@ public final class BackupManager {
 		CytraConfig cfg = config;
 		checkSpace(s, 0);
 		job.progress().phase(Lang.get("cytrabackups.phase.saving"));
-		Map<ServerLevel, Boolean> previous = null;
-		BackupService.Outcome out;
+		AtomicReference<Map<ServerLevel, Boolean>> previous = new AtomicReference<>();
+		BackupService.Outcome out = null;
+		OffsiteTarget streamTarget = null;
+		StreamingUpload stream = null;
 		try {
-			previous = await(SaveControl.saveAndDisable(server, cfg.flushOnSave), job);
+			previous.set(await(SaveControl.saveAndDisable(server, cfg.flushOnSave), job));
+			if (s.offsiteOnly) {
+				streamTarget = OffsiteTargets.create(cfg, s.storage);
+				stream = new StreamingUpload(s.offsite, s.blobs, streamTarget, offsiteWorkers, OffsiteTargets.threads(cfg), bufferBytes(cfg), () -> {
+					// Upload-bound from here on: let the world save meanwhile instead of holding it for what can be hours.
+					CytraBackups.LOGGER.info("CytraBackups: uploading is slower than reading the world; world saving is back on for the rest of this backup");
+					SaveControl.restore(server, previous.get());
+				}, msg -> CytraBackups.LOGGER.warn("CytraBackups offsite: {}", msg), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg), job.cancel());
+				s.blobs.setWriteHook(stream);
+				activeStream = stream;
+			}
 			BackupService.Request req = new BackupService.Request();
 			req.worldDir = worldDir;
 			req.levelName = levelName;
@@ -311,12 +344,32 @@ public final class BackupManager {
 			req.unchangedIgnore = p -> ignore.stream().anyMatch(g -> g.matches(p));
 			req.progress = job.progress();
 			req.cancel = job.cancel();
-			req.beforeWrite = bytes -> checkSpace(s, bytes);
+			// off-site only: at most the upload buffer is ever written here
+			req.beforeWrite = bytes -> checkSpace(s, s.offsiteOnly ? Math.min(bytes, bufferBytes(cfg)) : bytes);
 			req.warnings = w -> CytraBackups.LOGGER.warn("CytraBackups: {}", w);
 			out = s.backups.create(req);
+			SaveControl.restore(server, previous.get()); // the world is read; do not hold saving while the last uploads finish
+			if (stream != null) s.offsite.checkpoint(); // the new backup uses evicted data: persist where it is now
+			if (stream != null) {
+				job.progress().phase(Lang.get("cytrabackups.phase.upload_rest"));
+				try {
+					stream.finish();
+				} catch (IOException e) {
+					// The backup itself is complete here; the regular off-site sync uploads the rest later.
+					CytraBackups.LOGGER.warn("CytraBackups: {}; the rest is uploaded by the next off-site sync", e.getMessage());
+				}
+			}
 		} finally {
-			SaveControl.restore(server, previous);
+			s.blobs.setWriteHook(null);
+			activeStream = null;
+			try {
+				if (stream != null) stream.close(out != null && out.meta() != null ? out.scan().manifest : null);
+			} finally {
+				if (streamTarget != null) streamTarget.close();
+				SaveControl.restore(server, previous.get());
+			}
 		}
+		if (stream != null && stream.waited()) fb.info("cytrabackups.backup.upload_bound");
 		RepositoryState st = s.repo.state();
 		st.lastBackup = System.currentTimeMillis();
 		st.playersSeenSinceBackup = !server.getPlayerList().getPlayers().isEmpty();
@@ -693,12 +746,14 @@ public final class BackupManager {
 		runJob("cytrabackups.job.delete", who, fb, true, job -> {
 			BackupMeta m = services.repo.get(id).orElseThrow(() -> new IOException(Lang.get("cytrabackups.error.no_backup", id)));
 			if (m.pinned) throw new IOException(Lang.get("cytrabackups.error.pinned", id));
+			List<Hash> remoteDead = exclusiveRemoteBlobs(List.of(id), job);
 			services.repo.delete(id);
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) {
 				offsite.enqueueDeleteBackup(id);
+				dropBlobs(remoteDead);
 				kickOffsite();
 			}
-			fb.success("cytrabackups.delete.done", id);
+			fb.success(remoteDead.isEmpty() ? "cytrabackups.delete.done" : "cytrabackups.delete.done_offsite", id);
 		});
 	}
 
@@ -726,6 +781,33 @@ public final class BackupManager {
 				fb.error("cytrabackups.error.plain", e.getMessage());
 			}
 		});
+	}
+
+	/** Deleting backups also deletes their data off-site, including data that is no longer stored here. */
+	private boolean remoteCleanup() {
+		return config.offsite.enabled && config.offsite.mirrorDeletes && offsite.hasRemoteOnlyData();
+	}
+
+	/**
+	 * Blobs only the given backups use, computed before they are deleted: with backup data stored only off-site, a sweep
+	 * of the local store afterwards cannot find them. Empty if that is not needed or not possible (then nothing is lost,
+	 * the data just stays off-site).
+	 */
+	private List<Hash> exclusiveRemoteBlobs(Collection<Integer> ids, Job job) {
+		if (ids.isEmpty() || !remoteCleanup()) return List.of();
+		try {
+			return GarbageCollector.exclusiveBlobs(services.repo, ids, job.progress(), job.cancel());
+		} catch (IOException e) {
+			CytraBackups.LOGGER.warn("CytraBackups: could not work out which off-site data backup(s) {} use alone; it stays off-site: {}", ids, e.getMessage());
+			return List.of();
+		}
+	}
+
+	/** Deletes blobs no backup uses any more, here and (queued) off-site. */
+	private void dropBlobs(List<Hash> dead) throws IOException {
+		if (dead.isEmpty()) return;
+		for (Hash h : dead) services.blobs.delete(h);
+		offsite.enqueueDeleteBlobs(dead);
 	}
 
 	PrunePolicy policy() {
@@ -765,6 +847,13 @@ public final class BackupManager {
 			if (deletions.size() > 25) fb.send(Msg.detail("cytrabackups.more", deletions.size() - 25), false);
 			return;
 		}
+		// Mark what the kept backups use before deleting: with data stored only off-site, what the deleted backups used
+		// alone can only be found through their manifests.
+		boolean collect = config.prune.garbageCollect && !deletions.isEmpty();
+		List<Integer> deletedIds = deletions.stream().map(d -> d.backup().id).toList();
+		long markedAt = System.currentTimeMillis();
+		LongHashSet live = collect ? GarbageCollector.markLive(s.repo, deletedIds, job.progress(), job.cancel()) : null;
+		List<Hash> remoteDead = collect && remoteCleanup() ? GarbageCollector.exclusiveBlobs(s.repo, deletedIds, live, job.cancel()) : List.of();
 		job.progress().phase(Lang.get("cytrabackups.phase.prune_delete"));
 		job.progress().addTotal(deletions.size(), 0);
 		for (Pruner.Decision d : deletions) {
@@ -775,10 +864,12 @@ public final class BackupManager {
 			CytraBackups.LOGGER.info("CytraBackups: pruned backup #{} ({})", d.backup().id, String.join(", ", d.reasons()));
 		}
 		long freed = 0;
-		if (config.prune.garbageCollect && !deletions.isEmpty()) {
-			GarbageCollector.Result gc = GarbageCollector.collect(s.repo, job.progress(), job.cancel());
+		if (collect) {
+			if (config.offsite.enabled && config.offsite.mirrorDeletes) dropBlobs(remoteDead);
+			GarbageCollector.Result gc = GarbageCollector.sweep(s.repo, live, markedAt, job.progress(), job.cancel());
 			freed = gc.freedBytes();
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) offsite.enqueueDeleteBlobs(gc.deleted());
+			if (remoteCleanup()) offsite.sweepOrphans(gc.live());
 		}
 		s.repo.state().lastPrune = System.currentTimeMillis();
 		saveState();
@@ -796,6 +887,7 @@ public final class BackupManager {
 			GarbageCollector.Result gc = GarbageCollector.collect(services.repo, job.progress(), job.cancel());
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) {
 				offsite.enqueueDeleteBlobs(gc.deleted());
+				if (remoteCleanup()) offsite.sweepOrphans(gc.live());
 				kickOffsite();
 			}
 			fb.success("cytrabackups.gc.done", Formatting.bytes(gc.freedBytes()), Formatting.bytes(gc.liveBytes()));
@@ -804,6 +896,7 @@ public final class BackupManager {
 
 	public boolean verify(int id, String who, Feedback fb) {
 		return runJob("cytrabackups.job.verify", who, fb, false, job -> {
+			if (services.offsiteOnly) fb.info("cytrabackups.verify.offsite_note");
 			Verifier.Result r = Verifier.verify(services.repo, id, services.workers, job.progress(), job.cancel());
 			if (r.ok()) {
 				fb.success("cytrabackups.verify.ok", id, Formatting.bytes(r.bytesChecked()));
@@ -882,11 +975,21 @@ public final class BackupManager {
 			fb.error("cytrabackups.error.reload_busy");
 			return;
 		}
-		if (offsiteProgress.get() != null) {
-			fb.error("cytrabackups.error.reload_upload");
-			return;
+		PendingReload r = new PendingReload(fb, () -> {
+		});
+		if (reloadGate.requestReload(r)) async(() -> runReload(r));
+		else fb.info("cytrabackups.reload.after_upload");
+	}
+
+	/** Runs a reload the gate allowed, then one that was requested meanwhile, if any. */
+	private void runReload(PendingReload r) {
+		try {
+			reloadNow(r.fb());
+		} finally {
+			server.execute(r.after());
+			PendingReload next = reloadGate.reloadDone();
+			if (next != null) async(() -> runReload(next));
 		}
-		async(() -> reloadNow(fb));
 	}
 
 	/** Writes settings edited in the GUI to the config file and reloads; {@code after} then runs on the server thread. */
@@ -896,29 +999,33 @@ public final class BackupManager {
 			server.execute(after);
 			return;
 		}
-		if (offsiteProgress.get() != null) {
-			fb.error("cytrabackups.error.save_upload");
-			server.execute(after);
-			return;
-		}
 		async(() -> {
 			try {
 				ConfigIO.save(ModEnv.configFile(), edited);
-				reloadNow(fb);
 			} catch (IOException e) {
 				fb.error("cytrabackups.error.config_write", rootMessage(e));
-			} finally {
+				server.execute(after);
+				return;
+			}
+			pendingConfig = edited;
+			PendingReload r = new PendingReload(fb, after);
+			if (reloadGate.requestReload(r)) {
+				runReload(r);
+			} else {
+				// an off-site sync is running: it must finish with the old settings; they apply right after it
+				fb.info("cytrabackups.settings.after_upload");
 				server.execute(after);
 			}
 		});
 	}
 
 	private void reloadNow(Feedback fb) {
+		CytraConfig applying = pendingConfig;
 		try {
 			CytraConfig cfg = ConfigIO.load(ModEnv.configFile());
 			Services old = services;
 			Services fresh = Services.open(cfg, ModEnv.storageFor(cfg, levelName));
-			OffsiteSync freshOffsite = new OffsiteSync(fresh.repo, fresh.storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
+			OffsiteSync freshOffsite = fresh.offsite;
 			config = cfg;
 			services = fresh;
 			offsite = freshOffsite;
@@ -927,39 +1034,57 @@ public final class BackupManager {
 			fb.success(Lang.plural("cytrabackups.reload.done", fresh.repo.list().size()), fresh.repo.list().size());
 		} catch (Exception e) {
 			fb.error("cytrabackups.error.reload", rootMessage(e));
+		} finally {
+			// the file has been read: it is the truth now (a save made meanwhile stays pending for its own reload)
+			if (pendingConfig == applying) pendingConfig = null;
 		}
 	}
 
 	OffsiteTarget createTarget(CytraConfig cfg) {
-		CytraConfig.OffsiteSettings o = cfg.offsite;
-		return switch (o.type) {
-			case "sftp" -> new SftpTarget(o.sftp.host, o.sftp.port, o.sftp.username, o.sftp.password,
-				o.sftp.privateKey.isBlank() ? null : ModEnv.gameDir().resolve(o.sftp.privateKey), o.sftp.privateKeyPassphrase,
-				o.sftp.remoteDir, o.sftp.hostKeyChecking, services.storage.resolve("offsite").resolve("known_hosts"));
-			case "webdav" -> new WebDavTarget(o.webdav.url, o.webdav.username, o.webdav.password);
-			default -> new S3Target(o.s3.endpoint, o.s3.region, o.s3.bucket, o.s3.prefix, o.s3.accessKey, o.s3.secretKey, o.s3.pathStyle);
-		};
+		return OffsiteTargets.create(cfg, services.storage);
 	}
 
 	public void kickOffsite() {
+		if (!config.offsite.enabled || !reloadGate.tryStartSync()) return;
+		// read the settings only now: no reload can swap them while the gate is held
 		CytraConfig cfg = config;
-		if (!cfg.offsite.enabled) return;
-		OffsiteSync sync = offsite;
-		if (!sync.hasWork()) return;
+		Services s = services;
+		OffsiteSync sync = s.offsite;
 		Progress p = new Progress();
-		if (!offsiteProgress.compareAndSet(null, p)) return;
+		// off-site only: every backup goes off-site (also pre-restore ones), then its data is removed here
+		if (!cfg.offsite.enabled || !sync.hasWork() && !s.offsiteOnly) {
+			endSync(p);
+			return;
+		}
+		offsiteProgress.set(p);
 		offsiteExecutor.execute(() -> {
-			try (OffsiteTarget target = createTarget(cfg)) {
-				OffsiteSync.Result r = sync.process(target, offsiteWorkers, !cfg.offsite.type.equals("sftp"), p, CancelToken.NONE);
-				CytraBackups.LOGGER.info("CytraBackups: off-site sync to {} done: {} backup(s), {} blobs ({}), {} deletions",
-					target.describe(), r.backupsUploaded(), r.blobsUploaded(), Formatting.bytes(r.bytesUploaded()), r.deleted());
+			try {
+				if (s.offsiteOnly) sync.enqueueMissing();
+				if (sync.hasWork()) {
+					try (OffsiteTarget target = createTarget(cfg)) {
+						OffsiteSync.Result r = sync.process(target, offsiteWorkers, OffsiteTargets.threads(cfg), p, CancelToken.NONE);
+						CytraBackups.LOGGER.info("CytraBackups: off-site sync to {} done: {} backup(s), {} blobs ({}), {} deletions",
+							target.describe(), r.backupsUploaded(), r.blobsUploaded(), Formatting.bytes(r.bytesUploaded()), r.deleted());
+					}
+				}
+				if (s.offsiteOnly) {
+					long freed = sync.evictUploaded(s.blobs);
+					if (freed > 0) CytraBackups.LOGGER.info("CytraBackups: removed {} of uploaded backup data from this server (off-site only)", Formatting.bytes(freed));
+				}
 			} catch (Exception e) {
 				CytraBackups.LOGGER.warn("CytraBackups: off-site sync failed (will retry later): {}", rootMessage(e));
 				notifier.backupFailure(Lang.get("cytrabackups.offsite.copy"), rootMessage(e));
 			} finally {
-				offsiteProgress.compareAndSet(p, null);
+				endSync(p);
 			}
 		});
+	}
+
+	/** Ends an off-site sync; a reload that waited for it runs now. */
+	private void endSync(Progress p) {
+		offsiteProgress.compareAndSet(p, null);
+		PendingReload r = reloadGate.syncDone();
+		if (r != null) async(() -> runReload(r));
 	}
 
 	public void offsiteSyncAll(Feedback fb) {
@@ -1017,7 +1142,7 @@ public final class BackupManager {
 		return runJob("cytrabackups.job.fetch", who, fb, false, job -> {
 			CytraConfig cfg = config;
 			try (OffsiteTarget target = createTarget(cfg)) {
-				int blobs = offsite.fetch(target, id, offsiteWorkers, !cfg.offsite.type.equals("sftp"), job.progress(), job.cancel());
+				int blobs = offsite.fetch(target, id, offsiteWorkers, OffsiteTargets.threads(cfg), !services.offsiteOnly, job.progress(), job.cancel());
 				BackupMeta m = services.repo.get(id).orElseThrow();
 				fb.send(Msg.success("cytrabackups.offsite.fetched", id, target.describe(), blobs, Formatting.bytes(m.totalSize)).append(" ")
 					.append(Msg.button("cytrabackups.button.info", Msg.command("info", id), "cytrabackups.hover.info", id)), false);
@@ -1034,6 +1159,11 @@ public final class BackupManager {
 		}
 		OffsiteSync.Queue q = offsite.queue();
 		out.add(Msg.tr("cytrabackups.offsite.summary", config.offsite.type, q.uploaded.size(), q.uploads.size()));
+		if (services.offsiteOnly) {
+			out.add(Msg.detail("cytrabackups.offsite.only", config.offsite.localBufferGiB));
+		} else if (OffsiteTargets.offsiteOnly(config)) {
+			out.add(Msg.tr("cytrabackups.offsite.only_paused").withStyle(ChatFormatting.RED));
+		}
 		if (q.lastSuccess > 0) out.add(Msg.detail("cytrabackups.offsite.last", Msg.ago(q.lastSuccess, zone())));
 		if (!q.lastError.isBlank()) out.add(Msg.tr("cytrabackups.offsite.last_error", q.lastError).withStyle(ChatFormatting.RED));
 		Progress p = offsiteProgress.get();
@@ -1062,6 +1192,10 @@ public final class BackupManager {
 		Component last = st.lastBackup > 0 ? Msg.ago(st.lastBackup, zone()) : Msg.tr("cytrabackups.status.never");
 		lines.add(Msg.tr(Lang.plural("cytrabackups.status.backups", services.repo.list().size()), services.repo.list().size(), last, nextBackupDescription(now)));
 		List<Component> offsiteLines = offsiteStatus();
+		StreamingUpload stream = activeStream;
+		if (stream != null) {
+			lines.add(Msg.detail("cytrabackups.status.uploading", stream.uploadedBlobs(), Formatting.bytes(stream.uploadedBytes()), Formatting.bytes(stream.pendingBytes())));
+		}
 		async(() -> {
 			long free = FileUtil.usableSpace(services.storage);
 			Path game = ModEnv.gameDir();

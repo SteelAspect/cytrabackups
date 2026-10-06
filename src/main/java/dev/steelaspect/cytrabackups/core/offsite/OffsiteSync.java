@@ -11,13 +11,19 @@ import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.BackupRepository;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
 import dev.steelaspect.cytrabackups.core.store.BlobRef;
+import dev.steelaspect.cytrabackups.core.store.BlobStore;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -26,6 +32,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
@@ -34,6 +41,10 @@ import java.util.zip.InflaterInputStream;
  * Mirrors the repository to an {@link OffsiteTarget}. A persistent queue survives restarts; a local index of
  * uploaded blobs avoids re-uploading deduplicated data. meta.json is uploaded last so a remote backup only
  * "exists" once all of its data is there.
+ *
+ * <p>In off-site only mode uploaded blobs are deleted locally ("evicted"); the index then also says where they are.
+ * Blobs uploaded while a backup is still being made are listed in {@code session-blobs.bin}; the ones its manifest
+ * does not use end up in {@code orphans.bin} for the next garbage collection.
  */
 public final class OffsiteSync {
 	public static final class Queue {
@@ -44,6 +55,8 @@ public final class OffsiteSync {
 		public String lastError = "";
 		/** Identity of the destination the "uploaded" state refers to; a different destination starts from scratch. */
 		public String targetId = "";
+		/** Some backup data was deleted here after uploading: it only exists at {@link #targetId}. */
+		public boolean remoteOnly;
 	}
 
 	public record Result(int backupsUploaded, long blobsUploaded, long bytesUploaded, int deleted) {
@@ -54,6 +67,13 @@ public final class OffsiteSync {
 	private final Consumer<String> log;
 	private Queue queue;
 	private LongHashSet uploadedBlobs;
+	long lastIndexSave = System.currentTimeMillis();
+	/** Times the upload index was written (tests check that uploads do not rewrite it every time). */
+	int indexWrites;
+	private DataOutputStream session;
+	/** Remote objects being deleted right now; an upload of the same object waits for its deletion to finish. */
+	private final Set<String> deleting = new HashSet<>();
+	private int deletedSinceSave;
 
 	public OffsiteSync(BackupRepository repo, Path dir, Consumer<String> log) throws IOException {
 		this.repo = repo;
@@ -103,6 +123,222 @@ public final class OffsiteSync {
 		saveIndex();
 	}
 
+	/** True if the blob is stored at the destination (uploaded and not queued for deletion). */
+	public synchronized boolean isUploaded(Hash h) {
+		return uploadedBlobs.contains(h.prefix64());
+	}
+
+	/** True if some backup data exists only at the destination. */
+	public synchronized boolean hasRemoteOnlyData() {
+		return queue.remoteOnly;
+	}
+
+	/** Records a finished blob upload. A deletion of the same blob that is still queued is dropped. */
+	public synchronized void markUploaded(Hash h) throws IOException {
+		uploadedBlobs.add(h.prefix64());
+		queue.deleteKeys.remove(blobKey(h));
+		if (System.currentTimeMillis() - lastIndexSave > 120_000L) checkpoint();
+	}
+
+	/**
+	 * Call right before uploading a blob: waits while a deletion of the same object is running, then drops any queued
+	 * deletion of it, so an older deletion can never remove the new upload.
+	 */
+	public synchronized void claimForUpload(Hash h) throws InterruptedIOException {
+		String key = blobKey(h);
+		while (deleting.contains(key)) {
+			try {
+				wait();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new InterruptedIOException("interrupted");
+			}
+		}
+		queue.deleteKeys.remove(key);
+	}
+
+	/** False if the deletion was cancelled meanwhile (the object was uploaded again). */
+	private synchronized boolean beginDelete(String key) {
+		if (!queue.deleteKeys.contains(key)) return false;
+		deleting.add(key);
+		return true;
+	}
+
+	private synchronized void endDelete(String key, boolean deleted) throws IOException {
+		deleting.remove(key);
+		notifyAll();
+		if (deleted) {
+			queue.deleteKeys.remove(key);
+			if (++deletedSinceSave >= 200) {
+				deletedSinceSave = 0;
+				save();
+			}
+		}
+	}
+
+	/** Deletes keys with up to {@code threads} requests at a time. Returns how many were deleted. */
+	private int deleteAll(OffsiteTarget target, List<String> keys, ExecutorService workers, int threads, Progress progress, CancelToken cancel) throws IOException {
+		java.util.concurrent.atomic.AtomicInteger deleted = new java.util.concurrent.atomic.AtomicInteger();
+		Semaphore inFlight = new Semaphore(Math.max(1, threads));
+		List<Future<?>> futures = new ArrayList<>();
+		try {
+			for (String key : keys) {
+				cancel.check();
+				java.util.concurrent.Callable<Void> task = () -> {
+					cancel.check();
+					if (beginDelete(key)) {
+						boolean ok = false;
+						try {
+							target.delete(key);
+							ok = true;
+						} finally {
+							endDelete(key, ok);
+						}
+						deleted.incrementAndGet();
+					}
+					progress.addDone(1, 0);
+					return null;
+				};
+				if (threads > 1) {
+					inFlight.acquire();
+					futures.add(workers.submit(() -> {
+						try {
+							return task.call();
+						} finally {
+							inFlight.release();
+						}
+					}));
+				} else {
+					task.call();
+				}
+			}
+			for (Future<?> f : futures) f.get();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			futures.forEach(f -> f.cancel(true));
+			throw new CancellationException("interrupted");
+		} catch (ExecutionException e) {
+			futures.forEach(f -> f.cancel(true));
+			if (e.getCause() instanceof IOException io) throw io;
+			if (e.getCause() instanceof CancellationException ce) throw ce;
+			throw new IOException(e.getCause());
+		} catch (IOException | RuntimeException e) {
+			futures.forEach(f -> f.cancel(true));
+			throw e;
+		} catch (Exception e) {
+			throw new IOException(e);
+		}
+		return deleted.get();
+	}
+
+	/** Saves the upload index (and the session list) so a restart knows what is already stored off-site. */
+	public synchronized void checkpoint() throws IOException {
+		save();
+		saveIndex();
+		if (session != null) session.flush();
+	}
+
+	/**
+	 * Deletes local blob files that are stored at the destination (off-site only mode). Returns the bytes freed.
+	 * Blobs queued for remote deletion are not in the index, so they are never evicted.
+	 */
+	public long evictUploaded(BlobStore blobs) throws IOException {
+		List<Hash> uploaded = new ArrayList<>();
+		long[] bytes = {0};
+		blobs.forEach((hash, attrs) -> {
+			if (isUploaded(hash)) {
+				uploaded.add(hash);
+				bytes[0] += attrs.size();
+			}
+		});
+		evicted(blobs, uploaded);
+		return bytes[0];
+	}
+
+	/** Deletes the local files of blobs that were just uploaded. */
+	public void evicted(BlobStore blobs, List<Hash> hashes) throws IOException {
+		if (hashes.isEmpty()) return;
+		synchronized (this) {
+			if (!queue.remoteOnly) {
+				queue.remoteOnly = true;
+				save();
+			}
+		}
+		for (Hash h : hashes) {
+			if (isUploaded(h)) blobs.delete(h);
+		}
+	}
+
+	/** Starts listing the blobs uploaded while a backup is being made. Leftovers of an interrupted backup become orphans. */
+	public synchronized void startSession() throws IOException {
+		endSession(null);
+		session = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(dir.resolve("session-blobs.bin"),
+			StandardOpenOption.CREATE, StandardOpenOption.APPEND), 1 << 16));
+	}
+
+	public synchronized void recordSessionUpload(Hash h) throws IOException {
+		if (session != null) h.writeTo(session);
+	}
+
+	/**
+	 * Ends the session. Uploaded blobs that {@code committed} (the new backup's manifest, or null if it failed) does not
+	 * use are moved to the orphan list.
+	 */
+	public synchronized void endSession(Manifest committed) throws IOException {
+		if (session != null) {
+			session.close();
+			session = null;
+		}
+		Path file = dir.resolve("session-blobs.bin");
+		if (!Files.exists(file)) return;
+		LongHashSet used = new LongHashSet();
+		if (committed != null) committed.forEachBlob(ref -> used.add(ref.hash().prefix64()));
+		DataOutputStream[] out = {null};
+		try {
+			forEachHash(file, h -> {
+				if (used.contains(h.prefix64())) return;
+				if (out[0] == null) {
+					out[0] = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(dir.resolve("orphans.bin"),
+						StandardOpenOption.CREATE, StandardOpenOption.APPEND)));
+				}
+				h.writeTo(out[0]);
+			});
+		} finally {
+			if (out[0] != null) out[0].close();
+		}
+		Files.delete(file);
+	}
+
+	/**
+	 * Queues the remote deletion of orphaned uploads that no backup uses ({@code live}: every blob of every local backup,
+	 * by hash prefix). Returns how many were queued.
+	 */
+	public synchronized int sweepOrphans(LongHashSet live) throws IOException {
+		Path file = dir.resolve("orphans.bin");
+		if (!Files.exists(file)) return 0;
+		List<Hash> dead = new ArrayList<>();
+		LongHashSet seen = new LongHashSet();
+		forEachHash(file, h -> {
+			if (!live.contains(h.prefix64()) && seen.add(h.prefix64())) dead.add(h);
+		});
+		int before = queue.deleteKeys.size();
+		enqueueDeleteBlobs(dead);
+		Files.delete(file);
+		return queue.deleteKeys.size() - before;
+	}
+
+	private interface HashVisitor {
+		void accept(Hash h) throws IOException;
+	}
+
+	/** Streams a list of 32-byte hashes; a torn last record (crash while appending) is ignored. */
+	private static void forEachHash(Path file, HashVisitor visitor) throws IOException {
+		long count = Files.size(file) / 32;
+		try (DataInputStream in = new DataInputStream(new java.io.BufferedInputStream(Files.newInputStream(file), 1 << 16))) {
+			for (long i = 0; i < count; i++) visitor.accept(Hash.readFrom(in));
+		}
+	}
+
 	/**
 	 * Binds the upload state to a destination. When the destination changes (type, host, bucket, prefix, folder...),
 	 * everything is considered not uploaded there yet and pending remote deletions for the old one are dropped.
@@ -110,6 +346,9 @@ public final class OffsiteSync {
 	 */
 	public synchronized boolean bindTarget(String targetId) throws IOException {
 		if (targetId.equals(queue.targetId)) return false;
+		if (queue.remoteOnly && !queue.targetId.isEmpty()) {
+			throw new IOException(Lang.get("cytrabackups.offsite.remote_only_moved", queue.targetId));
+		}
 		queue.targetId = targetId;
 		queue.uploaded.clear();
 		queue.deleteKeys.clear();
@@ -132,6 +371,13 @@ public final class OffsiteSync {
 
 	/** Processes the queue against the target. Parallel uploads unless the target is SFTP (one channel). */
 	public Result process(OffsiteTarget target, ExecutorService workers, boolean parallel, Progress progress, CancelToken cancel) throws IOException {
+		return process(target, workers, parallel ? 3 : 1, progress, cancel);
+	}
+
+	/** Processes the queue against the target with up to {@code threads} uploads at a time (1: one after another). */
+	public Result process(OffsiteTarget target, ExecutorService workers, int threads, Progress progress, CancelToken cancel) throws IOException {
+		boolean parallel = threads > 1;
+		Semaphore inFlight = new Semaphore(Math.max(1, threads));
 		if (bindTarget(target.id())) {
 			int n = enqueueMissing();
 			log.accept("New off-site destination " + target.describe() + ": queued all " + n + " backup(s) for upload");
@@ -170,16 +416,29 @@ public final class OffsiteSync {
 					java.util.concurrent.Callable<Long> task = () -> {
 						cancel.check();
 						Path file = repo.blobs().pathFor(ref.hash());
-						if (!Files.exists(file)) return 0L; // garbage-collected: nothing references it anymore
-						target.upload(blobKey(ref.hash()), file);
-						synchronized (OffsiteSync.this) {
-							uploadedBlobs.add(ref.hash().prefix64());
+						if (!Files.exists(file)) return 0L; // garbage-collected, or uploaded and evicted meanwhile
+						long size;
+						try {
+							size = Files.size(file);
+							claimForUpload(ref.hash());
+							target.upload(blobKey(ref.hash()), file);
+						} catch (NoSuchFileException e) {
+							if (isUploaded(ref.hash())) return 0L; // uploaded and evicted by a running backup meanwhile
+							throw e;
 						}
+						markUploaded(ref.hash());
 						progress.addDone(1, ref.storedLength());
-						return Files.size(file);
+						return size;
 					};
 					if (parallel) {
-						futures.add(workers.submit(task));
+						inFlight.acquireUninterruptibly();
+						futures.add(workers.submit(() -> {
+							try {
+								return task.call();
+							} finally {
+								inFlight.release();
+							}
+						}));
 					} else {
 						try {
 							bytes += task.call();
@@ -222,16 +481,13 @@ public final class OffsiteSync {
 			synchronized (this) {
 				keys = new ArrayList<>(queue.deleteKeys);
 			}
-			if (!keys.isEmpty()) progress.phase(Lang.get("cytrabackups.phase.remote_delete", keys.size()));
-			for (String key : keys) {
-				cancel.check();
-				target.delete(key);
-				deleted++;
-				synchronized (this) {
-					queue.deleteKeys.remove(key);
-					if (deleted % 200 == 0) save();
-				}
+			if (!keys.isEmpty()) {
+				progress.phase(Lang.get("cytrabackups.phase.remote_delete", keys.size()));
+				progress.addTotal(keys.size(), 0);
 			}
+			// backups' own files first, then their data: a backup listed off-site never has data missing
+			deleted += deleteAll(target, keys.stream().filter(k -> !k.startsWith("blobs/")).toList(), workers, threads, progress, cancel);
+			deleted += deleteAll(target, keys.stream().filter(k -> k.startsWith("blobs/")).toList(), workers, threads, progress, cancel);
 			synchronized (this) {
 				queue.lastSuccess = System.currentTimeMillis();
 				queue.lastError = "";
@@ -279,6 +535,17 @@ public final class OffsiteSync {
 	 * stored here (each verified against its hash). Returns the number of blobs downloaded.
 	 */
 	public int fetch(OffsiteTarget target, int id, ExecutorService workers, boolean parallel, Progress progress, CancelToken cancel) throws IOException {
+		return fetch(target, id, workers, parallel ? 3 : 1, progress, cancel);
+	}
+
+	public int fetch(OffsiteTarget target, int id, ExecutorService workers, int threads, Progress progress, CancelToken cancel) throws IOException {
+		return fetch(target, id, workers, threads, true, progress, cancel);
+	}
+
+	/** {@code withBlobs} false (off-site only mode): only the backup's metadata is fetched; its data is read off-site when needed. */
+	public int fetch(OffsiteTarget target, int id, ExecutorService workers, int threads, boolean withBlobs, Progress progress, CancelToken cancel) throws IOException {
+		boolean parallel = threads > 1;
+		Semaphore inFlight = new Semaphore(Math.max(1, threads));
 		if (repo.get(id).isPresent()) throw new IOException(Lang.get("cytrabackups.offsite.already_local", id));
 		String prefix = "backups/" + BackupRepository.dirName(id) + "/";
 		Path staging = repo.stagingDir(id);
@@ -309,9 +576,15 @@ public final class OffsiteSync {
 		}
 		List<BlobRef> todo = new ArrayList<>();
 		LongHashSet seen = new LongHashSet();
-		manifest.forEachBlob(ref -> {
-			if (seen.add(ref.hash().prefix64()) && !repo.blobs().exists(ref.hash())) todo.add(ref);
-		});
+		if (withBlobs) {
+			manifest.forEachBlob(ref -> {
+				if (seen.add(ref.hash().prefix64()) && !repo.blobs().exists(ref.hash())) todo.add(ref);
+			});
+		} else {
+			synchronized (this) {
+				bindTarget(target.id());
+			}
+		}
 		progress.addTotal(todo.size(), todo.stream().mapToLong(BlobRef::storedLength).sum());
 		Path tmpDir = dir.resolve("fetch-tmp");
 		Files.createDirectories(tmpDir);
@@ -364,6 +637,7 @@ public final class OffsiteSync {
 			queue.uploads.remove(id);
 			queue.uploaded.add(id);
 			manifest.forEachBlob(ref -> uploadedBlobs.add(ref.hash().prefix64()));
+			if (!withBlobs) queue.remoteOnly = true;
 			save();
 			saveIndex();
 		}
@@ -375,6 +649,8 @@ public final class OffsiteSync {
 	}
 
 	private void saveIndex() throws IOException {
+		lastIndexSave = System.currentTimeMillis();
+		indexWrites++;
 		LongHashSet set = uploadedBlobs;
 		FileUtil.writeAtomic(dir.resolve("uploaded-blobs.bin"), out -> {
 			DeflaterOutputStream def = new DeflaterOutputStream(out);

@@ -22,13 +22,14 @@ class ConfigTest {
 		String text = Files.readString(f);
 		assertTrue(text.contains("// Minutes between automatic backups"), "comments present");
 		assertEquals(30, c.schedule.intervalMinutes);
+		assertEquals(false, c.schedule.enabled, "automatic backups are off on a fresh install");
 		// user edits with comments & trailing comma survive
 		Files.writeString(f, text.replace("\"intervalMinutes\": 30", "\"intervalMinutes\": 45 /* edited */"));
 		assertEquals(45, ConfigIO.load(f).schedule.intervalMinutes);
 		// missing keys fall back to defaults
-		Files.writeString(f, "{ // tiny\n \"schedule\": { \"enabled\": false }\n}");
+		Files.writeString(f, "{ // tiny\n \"schedule\": { \"enabled\": true }\n}");
 		CytraConfig partial = ConfigIO.load(f);
-		assertEquals(false, partial.schedule.enabled);
+		assertEquals(true, partial.schedule.enabled);
 		assertEquals(30, partial.schedule.intervalMinutes);
 		assertEquals(4, partial.permissions.level("restore"));
 	}

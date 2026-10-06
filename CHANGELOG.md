@@ -2,6 +2,10 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.6.4
+
+- New mod icon: the Cytra logo (Mod Menu, Cytra Hub). No other changes.
+
 ## 1.6.3
 
 - The area restore screen has a **Copy command** button: it copies the `/cbackup restore` command for the selected chunks, so you can run it from chat later, for example once you are away from the area. Chunks nobody is near are restored right away instead of at the next restart.

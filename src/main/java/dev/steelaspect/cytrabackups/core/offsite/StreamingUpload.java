@@ -185,6 +185,7 @@ public final class StreamingUpload implements BlobStore.WriteHook, AutoCloseable
 		Path file = blobs.pathFor(hash);
 		for (int attempt = 0; ; attempt++) {
 			try {
+				sync.claimForUpload(hash);
 				target.upload(OffsiteSync.blobKey(hash), file);
 				break;
 			} catch (NoSuchFileException e) {

@@ -2,6 +2,16 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.6.2
+
+**Faster off-site cleanup, and settings save during uploads.**
+
+- Deleting data from the off-site copy (after deleting or pruning backups) runs with **Parallel transfers** at a time instead of one by one, and its progress is shown (it used to sit at 0%). A backup's own files are deleted before its data.
+- Fix: if a piece was queued for deletion off-site and the same content was uploaded again while the deletions ran (for example a chunk back in an older state after a restore), the old deletion could remove the new upload.
+- Saving settings or `/cbackup reload` during an off-site upload no longer fails: the settings are saved right away and take effect as soon as the upload has finished. The settings screen shows the saved values immediately.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.6.1
 
 **Fix: slow off-site uploads.**

@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -303,6 +305,97 @@ class OffsiteOnlyTest {
 			// they are not used by any backup: garbage collection deletes them off-site
 			GarbageCollector.Result gc = GarbageCollector.collect(r.w.repo, new Progress(), CancelToken.NONE);
 			assertEquals(5, r.sync.sweepOrphans(gc.live()));
+		}
+	}
+
+	@Test
+	void remoteDeletesRunInParallelWithProgress() throws Exception {
+		AtomicInteger now = new AtomicInteger(), max = new AtomicInteger();
+		OffsiteTest.FakeTarget slow = new OffsiteTest.FakeTarget() {
+			@Override
+			public void delete(String key) {
+				max.accumulateAndGet(now.incrementAndGet(), Math::max);
+				try {
+					Thread.sleep(2);
+				} catch (InterruptedException ignored) {
+				}
+				now.decrementAndGet();
+				super.delete(key);
+			}
+		};
+		try (Rig r = new Rig(dir, slow)) {
+			r.sync.bindTarget(slow.id());
+			List<Hash> hashes = new java.util.ArrayList<>();
+			for (int i = 0; i < 300; i++) {
+				Hash h = Hash.compute(("piece " + i).getBytes());
+				slow.objects.put(OffsiteSync.blobKey(h), new byte[1]);
+				r.sync.markUploaded(h);
+				hashes.add(h);
+			}
+			r.sync.enqueueDeleteBlobs(hashes);
+			Progress p = new Progress();
+			OffsiteSync.Result res = r.sync.process(slow, r.pool, 8, p, CancelToken.NONE);
+			assertEquals(300, res.deleted());
+			assertTrue(slow.objects.isEmpty());
+			assertTrue(max.get() > 1, "deletes overlapped, max " + max.get());
+			assertEquals(1.0f, p.fraction(), "progress reaches 100%");
+			assertFalse(r.sync.hasWork());
+		}
+	}
+
+	@Test
+	void anUploadDuringItsOwnDeletionIsKept() throws Exception {
+		CountDownLatch deleteStarted = new CountDownLatch(1), releaseDelete = new CountDownLatch(1);
+		OffsiteTest.FakeTarget gated = new OffsiteTest.FakeTarget() {
+			@Override
+			public void delete(String key) {
+				deleteStarted.countDown();
+				try {
+					releaseDelete.await(10, TimeUnit.SECONDS);
+				} catch (InterruptedException ignored) {
+				}
+				super.delete(key);
+			}
+		};
+		try (Rig r = new Rig(dir, gated)) {
+			r.sync.bindTarget(gated.id());
+			Hash h = r.w.blobs.put("comes back".repeat(20).getBytes(), 0, 200, false).ref().hash();
+			String key = OffsiteSync.blobKey(h);
+			gated.upload(key, r.w.blobs.pathFor(h));
+			r.sync.markUploaded(h);
+			r.sync.enqueueDeleteBlobs(List.of(h));
+
+			java.util.concurrent.Future<?> sync = r.pool.submit(() -> r.sync.process(gated, r.pool, 4, new Progress(), CancelToken.NONE));
+			assertTrue(deleteStarted.await(10, TimeUnit.SECONDS));
+			// the same content is stored again while its old deletion is in flight
+			java.util.concurrent.Future<?> upload = r.pool.submit(() -> {
+				r.sync.claimForUpload(h);
+				gated.upload(key, r.w.blobs.pathFor(h));
+				r.sync.markUploaded(h);
+				return null;
+			});
+			Thread.sleep(100);
+			assertFalse(upload.isDone(), "the upload waits for the running deletion");
+			releaseDelete.countDown();
+			upload.get(10, TimeUnit.SECONDS);
+			sync.get(10, TimeUnit.SECONDS);
+			assertTrue(gated.objects.containsKey(key), "the new upload survives");
+			assertTrue(r.sync.isUploaded(h));
+			assertFalse(r.sync.queue().deleteKeys.contains(key));
+		}
+	}
+
+	@Test
+	void aDeletionCancelledBeforeItRunsLeavesTheObject() throws Exception {
+		try (Rig r = new Rig(dir, new OffsiteTest.FakeTarget())) {
+			r.sync.bindTarget(r.target.id());
+			Hash h = Hash.compute("kept".getBytes());
+			r.target.objects.put(OffsiteSync.blobKey(h), new byte[1]);
+			r.sync.markUploaded(h);
+			r.sync.enqueueDeleteBlobs(List.of(h));
+			r.sync.claimForUpload(h); // uploaded again before the sync got to it
+			r.sync.process(r.target, r.pool, 4, new Progress(), CancelToken.NONE);
+			assertTrue(r.target.objects.containsKey(OffsiteSync.blobKey(h)));
 		}
 	}
 }

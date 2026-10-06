@@ -17,11 +17,13 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -69,6 +71,9 @@ public final class OffsiteSync {
 	/** Times the upload index was written (tests check that uploads do not rewrite it every time). */
 	int indexWrites;
 	private DataOutputStream session;
+	/** Remote objects being deleted right now; an upload of the same object waits for its deletion to finish. */
+	private final Set<String> deleting = new HashSet<>();
+	private int deletedSinceSave;
 
 	public OffsiteSync(BackupRepository repo, Path dir, Consumer<String> log) throws IOException {
 		this.repo = repo;
@@ -133,6 +138,97 @@ public final class OffsiteSync {
 		uploadedBlobs.add(h.prefix64());
 		queue.deleteKeys.remove(blobKey(h));
 		if (System.currentTimeMillis() - lastIndexSave > 120_000L) checkpoint();
+	}
+
+	/**
+	 * Call right before uploading a blob: waits while a deletion of the same object is running, then drops any queued
+	 * deletion of it, so an older deletion can never remove the new upload.
+	 */
+	public synchronized void claimForUpload(Hash h) throws InterruptedIOException {
+		String key = blobKey(h);
+		while (deleting.contains(key)) {
+			try {
+				wait();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new InterruptedIOException("interrupted");
+			}
+		}
+		queue.deleteKeys.remove(key);
+	}
+
+	/** False if the deletion was cancelled meanwhile (the object was uploaded again). */
+	private synchronized boolean beginDelete(String key) {
+		if (!queue.deleteKeys.contains(key)) return false;
+		deleting.add(key);
+		return true;
+	}
+
+	private synchronized void endDelete(String key, boolean deleted) throws IOException {
+		deleting.remove(key);
+		notifyAll();
+		if (deleted) {
+			queue.deleteKeys.remove(key);
+			if (++deletedSinceSave >= 200) {
+				deletedSinceSave = 0;
+				save();
+			}
+		}
+	}
+
+	/** Deletes keys with up to {@code threads} requests at a time. Returns how many were deleted. */
+	private int deleteAll(OffsiteTarget target, List<String> keys, ExecutorService workers, int threads, Progress progress, CancelToken cancel) throws IOException {
+		java.util.concurrent.atomic.AtomicInteger deleted = new java.util.concurrent.atomic.AtomicInteger();
+		Semaphore inFlight = new Semaphore(Math.max(1, threads));
+		List<Future<?>> futures = new ArrayList<>();
+		try {
+			for (String key : keys) {
+				cancel.check();
+				java.util.concurrent.Callable<Void> task = () -> {
+					cancel.check();
+					if (beginDelete(key)) {
+						boolean ok = false;
+						try {
+							target.delete(key);
+							ok = true;
+						} finally {
+							endDelete(key, ok);
+						}
+						deleted.incrementAndGet();
+					}
+					progress.addDone(1, 0);
+					return null;
+				};
+				if (threads > 1) {
+					inFlight.acquire();
+					futures.add(workers.submit(() -> {
+						try {
+							return task.call();
+						} finally {
+							inFlight.release();
+						}
+					}));
+				} else {
+					task.call();
+				}
+			}
+			for (Future<?> f : futures) f.get();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			futures.forEach(f -> f.cancel(true));
+			throw new CancellationException("interrupted");
+		} catch (ExecutionException e) {
+			futures.forEach(f -> f.cancel(true));
+			if (e.getCause() instanceof IOException io) throw io;
+			if (e.getCause() instanceof CancellationException ce) throw ce;
+			throw new IOException(e.getCause());
+		} catch (IOException | RuntimeException e) {
+			futures.forEach(f -> f.cancel(true));
+			throw e;
+		} catch (Exception e) {
+			throw new IOException(e);
+		}
+		return deleted.get();
 	}
 
 	/** Saves the upload index (and the session list) so a restart knows what is already stored off-site. */
@@ -324,6 +420,7 @@ public final class OffsiteSync {
 						long size;
 						try {
 							size = Files.size(file);
+							claimForUpload(ref.hash());
 							target.upload(blobKey(ref.hash()), file);
 						} catch (NoSuchFileException e) {
 							if (isUploaded(ref.hash())) return 0L; // uploaded and evicted by a running backup meanwhile
@@ -384,16 +481,13 @@ public final class OffsiteSync {
 			synchronized (this) {
 				keys = new ArrayList<>(queue.deleteKeys);
 			}
-			if (!keys.isEmpty()) progress.phase(Lang.get("cytrabackups.phase.remote_delete", keys.size()));
-			for (String key : keys) {
-				cancel.check();
-				target.delete(key);
-				deleted++;
-				synchronized (this) {
-					queue.deleteKeys.remove(key);
-					if (deleted % 200 == 0) save();
-				}
+			if (!keys.isEmpty()) {
+				progress.phase(Lang.get("cytrabackups.phase.remote_delete", keys.size()));
+				progress.addTotal(keys.size(), 0);
 			}
+			// backups' own files first, then their data: a backup listed off-site never has data missing
+			deleted += deleteAll(target, keys.stream().filter(k -> !k.startsWith("blobs/")).toList(), workers, threads, progress, cancel);
+			deleted += deleteAll(target, keys.stream().filter(k -> k.startsWith("blobs/")).toList(), workers, threads, progress, cancel);
 			synchronized (this) {
 				queue.lastSuccess = System.currentTimeMillis();
 				queue.lastError = "";

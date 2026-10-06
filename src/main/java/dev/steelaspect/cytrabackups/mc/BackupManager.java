@@ -8,6 +8,7 @@ import dev.steelaspect.cytrabackups.core.Hash;
 import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.LongHashSet;
 import dev.steelaspect.cytrabackups.core.Progress;
+import dev.steelaspect.cytrabackups.core.ReloadGate;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.backup.BackupService;
 import dev.steelaspect.cytrabackups.core.backup.ChunkSelection;
@@ -126,6 +127,13 @@ public final class BackupManager {
 	private final AtomicReference<Progress> offsiteProgress = new AtomicReference<>();
 	/** The running backup's uploads (off-site only mode), for the status. */
 	private volatile StreamingUpload activeStream;
+	/** Keeps reloads and off-site syncs apart; a reload asked for during a sync runs right after it. */
+	private final ReloadGate<PendingReload> reloadGate = new ReloadGate<>();
+	/** Settings already written to the config file but not applied yet (they wait for the running off-site sync). */
+	private volatile CytraConfig pendingConfig;
+
+	private record PendingReload(Feedback fb, Runnable after) {
+	}
 	private final ProgressDisplay display = new ProgressDisplay();
 	private final Notifier notifier;
 	private final Map<String, Confirm> confirmations = new ConcurrentHashMap<>();
@@ -165,6 +173,12 @@ public final class BackupManager {
 
 	public CytraConfig config() {
 		return config;
+	}
+
+	/** The settings as last saved: what the settings screen shows and edits, even before they are applied. */
+	public CytraConfig editableConfig() {
+		CytraConfig pending = pendingConfig;
+		return pending != null ? pending : config;
 	}
 
 	public Services services() {
@@ -961,11 +975,21 @@ public final class BackupManager {
 			fb.error("cytrabackups.error.reload_busy");
 			return;
 		}
-		if (offsiteProgress.get() != null) {
-			fb.error("cytrabackups.error.reload_upload");
-			return;
+		PendingReload r = new PendingReload(fb, () -> {
+		});
+		if (reloadGate.requestReload(r)) async(() -> runReload(r));
+		else fb.info("cytrabackups.reload.after_upload");
+	}
+
+	/** Runs a reload the gate allowed, then one that was requested meanwhile, if any. */
+	private void runReload(PendingReload r) {
+		try {
+			reloadNow(r.fb());
+		} finally {
+			server.execute(r.after());
+			PendingReload next = reloadGate.reloadDone();
+			if (next != null) async(() -> runReload(next));
 		}
-		async(() -> reloadNow(fb));
 	}
 
 	/** Writes settings edited in the GUI to the config file and reloads; {@code after} then runs on the server thread. */
@@ -975,24 +999,28 @@ public final class BackupManager {
 			server.execute(after);
 			return;
 		}
-		if (offsiteProgress.get() != null) {
-			fb.error("cytrabackups.error.save_upload");
-			server.execute(after);
-			return;
-		}
 		async(() -> {
 			try {
 				ConfigIO.save(ModEnv.configFile(), edited);
-				reloadNow(fb);
 			} catch (IOException e) {
 				fb.error("cytrabackups.error.config_write", rootMessage(e));
-			} finally {
+				server.execute(after);
+				return;
+			}
+			pendingConfig = edited;
+			PendingReload r = new PendingReload(fb, after);
+			if (reloadGate.requestReload(r)) {
+				runReload(r);
+			} else {
+				// an off-site sync is running: it must finish with the old settings; they apply right after it
+				fb.info("cytrabackups.settings.after_upload");
 				server.execute(after);
 			}
 		});
 	}
 
 	private void reloadNow(Feedback fb) {
+		CytraConfig applying = pendingConfig;
 		try {
 			CytraConfig cfg = ConfigIO.load(ModEnv.configFile());
 			Services old = services;
@@ -1006,6 +1034,9 @@ public final class BackupManager {
 			fb.success(Lang.plural("cytrabackups.reload.done", fresh.repo.list().size()), fresh.repo.list().size());
 		} catch (Exception e) {
 			fb.error("cytrabackups.error.reload", rootMessage(e));
+		} finally {
+			// the file has been read: it is the truth now (a save made meanwhile stays pending for its own reload)
+			if (pendingConfig == applying) pendingConfig = null;
 		}
 	}
 
@@ -1014,14 +1045,18 @@ public final class BackupManager {
 	}
 
 	public void kickOffsite() {
+		if (!config.offsite.enabled || !reloadGate.tryStartSync()) return;
+		// read the settings only now: no reload can swap them while the gate is held
 		CytraConfig cfg = config;
-		if (!cfg.offsite.enabled) return;
 		Services s = services;
 		OffsiteSync sync = s.offsite;
-		// off-site only: every backup goes off-site (also pre-restore ones), then its data is removed here
-		if (!sync.hasWork() && !s.offsiteOnly) return;
 		Progress p = new Progress();
-		if (!offsiteProgress.compareAndSet(null, p)) return;
+		// off-site only: every backup goes off-site (also pre-restore ones), then its data is removed here
+		if (!cfg.offsite.enabled || !sync.hasWork() && !s.offsiteOnly) {
+			endSync(p);
+			return;
+		}
+		offsiteProgress.set(p);
 		offsiteExecutor.execute(() -> {
 			try {
 				if (s.offsiteOnly) sync.enqueueMissing();
@@ -1040,9 +1075,16 @@ public final class BackupManager {
 				CytraBackups.LOGGER.warn("CytraBackups: off-site sync failed (will retry later): {}", rootMessage(e));
 				notifier.backupFailure(Lang.get("cytrabackups.offsite.copy"), rootMessage(e));
 			} finally {
-				offsiteProgress.compareAndSet(p, null);
+				endSync(p);
 			}
 		});
+	}
+
+	/** Ends an off-site sync; a reload that waited for it runs now. */
+	private void endSync(Progress p) {
+		offsiteProgress.compareAndSet(p, null);
+		PendingReload r = reloadGate.syncDone();
+		if (r != null) async(() -> runReload(r));
 	}
 
 	public void offsiteSyncAll(Feedback fb) {

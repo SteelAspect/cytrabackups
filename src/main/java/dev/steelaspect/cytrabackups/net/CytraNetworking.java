@@ -98,7 +98,7 @@ public final class CytraNetworking {
 
 	static void sendConfig(ServerPlayer player, BackupManager m, List<String> problems) {
 		if (ServerPlayNetworking.canSend(player, ConfigPayload.TYPE)) {
-			ServerPlayNetworking.send(player, new ConfigPayload(ConfigSchema.describe(m.config()), problems));
+			ServerPlayNetworking.send(player, new ConfigPayload(ConfigSchema.describe(m.editableConfig()), problems));
 		}
 	}
 
@@ -114,7 +114,7 @@ public final class CytraNetworking {
 			fb.info("cytrabackups.settings.unchanged");
 			return;
 		}
-		ConfigSchema.Result r = ConfigSchema.apply(m.config(), p.changes());
+		ConfigSchema.Result r = ConfigSchema.apply(m.editableConfig(), p.changes());
 		if (!r.ok()) {
 			fb.error("cytrabackups.error.settings", String.join("; ", r.problems()));
 			sendConfig(player, m, r.problems());

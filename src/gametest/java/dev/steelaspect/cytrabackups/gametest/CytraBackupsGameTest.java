@@ -166,6 +166,65 @@ public class CytraBackupsGameTest {
 	 * level (radius 2 = level 31) must leave chunk holders, as counted by the restore's own unload check, exactly
 	 * {@code holderRange(vd) - vd} chunks beyond the ticketed area and none further out.
 	 */
+	@GameTest(maxTicks = 400_000)
+	public void previewShowsBackupBlocks(GameTestHelper helper) {
+		BackupManager m = BackupManager.get();
+		ServerLevel level = helper.getLevel();
+		Messages msgs = new Messages();
+		int cx = 1200, cz = 1200;
+		BlockPos pos = new BlockPos(cx * 16 + 3, 90, cz * 16 + 9);
+		String comment = "gametest-preview-" + System.nanoTime();
+		int[] id = new int[1];
+		helper.startSequence()
+			.thenExecute(() -> {
+				level.setChunkForced(cx, cz, true);
+				level.getChunk(cx, cz);
+				level.setBlockAndUpdate(pos, Blocks.GOLD_BLOCK.defaultBlockState());
+				helper.assertTrue(m.createBackup(Trigger.MANUAL, comment, "gametest", msgs), "backup should start");
+			})
+			.thenWaitUntil(() -> {
+				helper.assertTrue(m.currentJob() == null && latestWithComment(m, comment) != null, "waiting for the backup: " + msgs.last());
+				id[0] = latestWithComment(m, comment).id;
+			})
+			.thenExecute(() -> {
+				level.setBlockAndUpdate(pos, Blocks.DIAMOND_BLOCK.defaultBlockState());
+				helper.assertTrue(m.requestPreview(id[0], level, ChunkSelection.box(cx, cz, cx, cz), msgs, "gametest", null), "preview should start");
+			})
+			.thenWaitUntil(() -> helper.assertTrue(m.currentJob() == null && msgs.last().contains("preview"), "waiting for the preview: " + msgs.last()))
+			.thenExecute(() -> {
+				level.setChunkForced(cx, cz, false);
+				boolean sync = dev.steelaspect.cytrabackups.mc.SyncmaticaShare.available();
+				helper.assertTrue(msgs.last().contains(sync ? "shared through Cytra Syncmatica" : "saved as"),
+					(sync ? "with" : "without") + " Cytra Syncmatica: " + msgs.last());
+				if (sync) {
+					Path ids = m.services().storage.resolve("previews").resolve("shared.txt");
+					helper.assertTrue(java.nio.file.Files.isRegularFile(ids), "the shared preview id should be remembered");
+					level.getServer().getCommands().performPrefixedCommand(level.getServer().createCommandSourceStack(), "cbackup preview clear");
+					helper.assertTrue(!java.nio.file.Files.exists(ids), "preview clear should forget the shared previews");
+				}
+				Path file = m.services().storage.resolve("previews").resolve("backup-" + id[0] + "-" + cx + "_" + cz + ".litematic");
+				try {
+					CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+					CompoundTag region = root.getCompoundOrEmpty("Regions").getCompoundOrEmpty("Backup " + id[0] + " preview");
+					CompoundTag size = region.getCompoundOrEmpty("Size");
+					int sx = size.getIntOr("x", 0), sy = size.getIntOr("y", 0), sz = size.getIntOr("z", 0);
+					helper.assertTrue(sx == 16 && sz == 16 && sy > 0, "size " + sx + "x" + sy + "x" + sz);
+					int minY = root.getCompoundOrEmpty("Metadata").getStringOr("Description", "").contains(" at ")
+						? Integer.parseInt(root.getCompoundOrEmpty("Metadata").getStringOr("Description", "").replaceAll(".* at -?\\d+, (-?\\d+), .*", "$1")) : 0;
+					ListTag palette = region.getListOrEmpty("BlockStatePalette");
+					long[] states = region.getLongArray("BlockStates").orElseThrow();
+					int bits = Math.max(2, 32 - Integer.numberOfLeadingZeros(palette.size() - 1));
+					int index = ((pos.getY() - minY) * sz + 9) * sx + 3;
+					int value = dev.steelaspect.cytrabackups.mc.BackupPreview.unpack(states, bits, index);
+					String name = palette.getCompoundOrEmpty(value).getStringOr("Name", "");
+					helper.assertTrue(name.equals("minecraft:gold_block"), "the preview should show the backup's gold block, got " + name);
+				} catch (java.io.IOException e) {
+					throw new RuntimeException(e);
+				}
+			})
+			.thenSucceed();
+	}
+
 	@GameTest(maxTicks = 2_000)
 	public void holderRangeMatchesTickets(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();

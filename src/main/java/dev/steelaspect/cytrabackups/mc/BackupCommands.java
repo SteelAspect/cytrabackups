@@ -42,7 +42,7 @@ public final class BackupCommands {
 	private static final String[][] HELP = {
 		{"create [comment]", "create"}, {"list [page]", "list"}, {"info <id>", "info"}, {"diff <id1> <id2>", "diff"},
 		{"restore <id>", "restore"}, {"restore <id> radius <r>", "radius"}, {"restore <id> chunks <dim> <x1> <z1> <x2> <z2>", "chunks"},
-		{"restore <id> region <dim> <rx> <rz>", "region"}, {"rollback", "rollback"}, {"pending [cancel|apply]", "pending"},
+		{"restore <id> region <dim> <rx> <rz>", "region"}, {"preview <id> radius <r>", "preview"}, {"preview clear", "preview_clear"}, {"rollback", "rollback"}, {"pending [cancel|apply]", "pending"},
 		{"comment <id> [text]", "comment"}, {"pin <id>", "pin"}, {"unpin <id>", "unpin"}, {"delete <id>", "delete"},
 		{"verify <id>", "verify"}, {"export <id>", "export"}, {"import <path> [comment]", "import"}, {"prune [dryrun]", "prune"},
 		{"gc", "gc"}, {"status", "status"}, {"cancel", "cancel"}, {"reload", "reload"}, {"offsite [status|sync|list]", "offsite"}, {"offsite fetch <id>", "fetch"},
@@ -141,6 +141,26 @@ public final class BackupCommands {
 				.then(chunksArg)
 				.then(regionArg)
 				.then(radiusArg)));
+
+		root.then(literal("preview").requires(Perms.require(Perms.RESTORE))
+			.then(literal("clear").executes(c -> {
+				manager().clearPreviews(c.getSource());
+				return 1;
+			}))
+			.then(id("id")
+				.then(literal("radius").then(argument("radius", integer(0, 7)).executes(c -> {
+					ServerPlayer p = c.getSource().getPlayerOrException();
+					ChunkPos cp = p.chunkPosition();
+					manager().requestPreview(getInteger(c, "id"), p.level(), ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), c.getSource());
+					return 1;
+				})))
+				.then(literal("chunks").then(argument("dimension", DimensionArgument.dimension())
+					.then(argument("x1", integer()).then(argument("z1", integer()).then(argument("x2", integer()).then(argument("z2", integer())
+						.executes(c -> {
+							manager().requestPreview(getInteger(c, "id"), DimensionArgument.getDimension(c, "dimension"),
+								ChunkSelection.box(getInteger(c, "x1"), getInteger(c, "z1"), getInteger(c, "x2"), getInteger(c, "z2")), c.getSource());
+							return 1;
+						})))))))));
 
 		root.then(literal("confirm").then(argument("token", word()).executes(c -> {
 			manager().confirm(getString(c, "token"), c.getSource(), true);

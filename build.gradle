@@ -69,6 +69,13 @@ dependencies {
 	implementation "com.github.mwiede:jsch:${project.jsch_version}"
 	include "com.github.mwiede:jsch:${project.jsch_version}"
 
+	// Optional: ./gradlew runGameTest -PwithSyncmatica loads a local Cytra Syncmatica jar (private, never committed)
+	// so the preview test also checks sharing.
+	def syncmaticaJar = file("${System.getProperty('user.home')}/Downloads/cytra-syncmatica-1.4.0+1.21.11.jar")
+	if (project.hasProperty('withSyncmatica') && syncmaticaJar.exists()) {
+		modLocalRuntime files(syncmaticaJar)
+	}
+
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
@@ -133,5 +140,12 @@ jar {
 
 	from("LICENSE") {
 		rename { "${it}_$projectName" }
+	}
+}
+
+// Run one server game test: ./gradlew runGameTest -Pgt=<full test id>.
+tasks.matching { it.name == 'runGameTest' }.configureEach {
+	if (project.hasProperty('gt')) {
+		jvmArgs "-Dfabric-api.gametest.filter=${project.property('gt')}"
 	}
 }

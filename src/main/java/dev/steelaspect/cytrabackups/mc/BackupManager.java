@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -536,6 +537,98 @@ public final class BackupManager {
 		}
 		prompt(src, Lang.get(Lang.plural("cytrabackups.restore.area.question", n), n, level.dimension().identifier(), describe(meta.get())), details,
 			() -> startChunkRestore(id, level, sel, who, fb));
+	}
+
+	/** The most chunks one preview may cover (16 x 16). */
+	public static final int PREVIEW_MAX_CHUNKS = 256;
+
+	/**
+	 * Builds a schematic of the area as it is in backup {@code id} and shares it through Cytra Syncmatica at its real
+	 * position, so everyone with Litematica sees it as an overlay. Without Cytra Syncmatica the file is only saved.
+	 */
+	public void requestPreview(int id, ServerLevel level, ChunkSelection sel, CommandSourceStack src) {
+		requestPreview(id, level, sel, Feedback.of(src), src.getTextName(), src.getPlayer());
+	}
+
+	/** {@link #requestPreview(int, ServerLevel, ChunkSelection, CommandSourceStack)} with the parts spelled out ({@code player} may be null). */
+	public boolean requestPreview(int id, ServerLevel level, ChunkSelection sel, Feedback fb, String who, ServerPlayer player) {
+		if (services.repo.get(id).isEmpty()) {
+			fb.error("cytrabackups.error.no_backup", id);
+			return false;
+		}
+		long n = sel.chunkCount();
+		if (sel.boxes().size() != 1 || n > PREVIEW_MAX_CHUNKS) {
+			fb.error("cytrabackups.preview.too_big", n, PREVIEW_MAX_CHUNKS);
+			return false;
+		}
+		return runJob("cytrabackups.job.preview", who, fb, false, job -> {
+			Services s = services;
+			Manifest manifest = s.repo.loadManifest(id);
+			job.progress().phase(Lang.get("cytrabackups.phase.read_chunks", id));
+			List<LiveChunkRestore.Write> writes = LiveChunkRestore.prepare(manifest, s.blobs, worldDir, dimensionFolder(level), sel);
+			job.progress().phase(Lang.get("cytrabackups.phase.build_preview"));
+			ChunkSelection.Box b = sel.boxes().getFirst();
+			String name = "Backup " + id + " preview";
+			Path file = s.storage.resolve("previews").resolve("backup-" + id + "-" + b.minX() + "_" + b.minZ() + ".litematic");
+			BackupPreview.Result result = BackupPreview.build(level, writes, new net.minecraft.world.level.ChunkPos(b.minX(), b.minZ()),
+				new net.minecraft.world.level.ChunkPos(b.maxX(), b.maxZ()), name, who, file);
+			String dim = level.dimension().identifier().toString();
+			String shared = await(server.submit(() -> {
+				if (!SyncmaticaShare.available()) return null;
+				try {
+					UUID placement = SyncmaticaShare.share(file, dim, result.min(), player);
+					rememberPreview(placement);
+					return placement.toString();
+				} catch (IOException e) {
+					throw new java.io.UncheckedIOException(e);
+				}
+			}), job);
+			String size = result.sizeX() + "x" + result.sizeY() + "x" + result.sizeZ();
+			if (shared != null) {
+				fb.success("cytrabackups.preview.shared", id, size, result.min().toShortString());
+			} else {
+				fb.info("cytrabackups.preview.saved", id, size, s.storage.relativize(file).toString());
+			}
+		});
+	}
+
+	/** Unshares every preview this mod shared. */
+	public void clearPreviews(CommandSourceStack src) {
+		if (!SyncmaticaShare.available()) {
+			src.sendFailure(Msg.error("cytrabackups.preview.no_syncmatica"));
+			return;
+		}
+		try {
+			List<UUID> ids = loadPreviewIds();
+			int removed = SyncmaticaShare.remove(ids);
+			Files.deleteIfExists(previewIdsFile());
+			src.sendSuccess(() -> Msg.info("cytrabackups.preview.cleared", removed), false);
+		} catch (IOException e) {
+			src.sendFailure(Msg.error("cytrabackups.preview.failed", e.getMessage()));
+		}
+	}
+
+	private Path previewIdsFile() {
+		return services.storage.resolve("previews").resolve("shared.txt");
+	}
+
+	private List<UUID> loadPreviewIds() throws IOException {
+		Path f = previewIdsFile();
+		if (!Files.isRegularFile(f)) return List.of();
+		List<UUID> out = new ArrayList<>();
+		for (String line : Files.readAllLines(f)) {
+			try {
+				if (!line.isBlank()) out.add(UUID.fromString(line.trim()));
+			} catch (IllegalArgumentException ignored) {
+			}
+		}
+		return out;
+	}
+
+	private void rememberPreview(UUID id) throws IOException {
+		Path f = previewIdsFile();
+		Files.createDirectories(f.getParent());
+		Files.writeString(f, id + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
 	}
 
 	public void startChunkRestore(int id, ServerLevel level, ChunkSelection sel, String who, Feedback fb) {

@@ -446,7 +446,7 @@
 	"cytrabackups.status.storage": "Stored in %s, %s free.",
 	"cytrabackups.status.queued": "Waiting for the next restart: %s.",
 	"cytrabackups.status.offsite": "Off-site: %s",
-	"cytrabackups.status.next_off": "never (automatic backups are off)",
+	"cytrabackups.status.next_off": "never (automatic backups are off, turn them on under Settings > Schedule)",
 	"cytrabackups.status.next_none": "not scheduled",
 	"cytrabackups.status.next_due": "due now",
 	"cytrabackups.status.next_in": "in %s",

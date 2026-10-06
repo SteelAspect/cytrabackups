@@ -2,6 +2,16 @@
 
 All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.5.1
+
+**Automatic backups start off.**
+
+- On a fresh install automatic backups are now disabled (`schedule.enabled` defaults to `false`). Turn them on under Settings > Schedule > Enabled, or set `schedule.enabled` to `true` in `config/cytrabackups.json` and run `/cbackup reload`. Manual backups work as before.
+- Existing configs are not changed: a server that already has `"enabled": true` keeps its automatic backups.
+- `/cbackup status` says where to turn automatic backups on while they are off.
+
+Install: replace any older `cytrabackups-*.jar` in `mods/`.
+
 ## 1.5.0
 
 **Smaller backups: chunk recompression.**

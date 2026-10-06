@@ -36,7 +36,7 @@ public final class CytraConfig {
 	}
 
 	public static final class ScheduleSettings {
-		public boolean enabled = true;
+		public boolean enabled = false;
 		public int intervalMinutes = 30;
 		public List<String> timesOfDay = new ArrayList<>();
 		public int startupDelayMinutes = 2;

@@ -21,13 +21,14 @@ Only changed chunks are stored again, restores are safe and can be undone, and e
 1. Install [Fabric Loader](https://fabricmc.net/use/) and [Fabric API](https://modrinth.com/mod/fabric-api) for Minecraft 1.21.11.
 2. Download `cytrabackups-<version>.jar` from [Releases](https://github.com/steelaspect/cytrabackups/releases/latest) and put it in the `mods/` folder of your server (or your singleplayer game).
 3. Start the game or server. Backups are stored in `backups/cytrabackups/` and the settings in `config/cytrabackups.json`.
+4. Automatic backups are **off** on a fresh install. Turn them on under Settings > Schedule > Enabled in the menu, or set `schedule.enabled` to `true` in the config and run `/cbackup reload`. Manual backups (`/cbackup create`) work either way.
 
 Players don't need the mod to use it: every feature works through `/cbackup` commands with clickable chat. Installing it on the client as well adds the in-game menu. It runs entirely inside Minecraft, so it works on panel hosts (Pterodactyl and similar) without shell access.
 
 ## Features
 
 - **Small backups.** Files and individual chunks are stored once; a backup only adds what changed since the last one. Compressed with zstd. Turn on **Recompress chunks** in the settings to store chunk data about 24 percent smaller than Minecraft's own compression (native zstd with a dictionary trained on real chunks).
-- **Automatic backups** on an interval, at fixed times of day, when the server stops, or when the last player leaves. Skipped when nothing changed.
+- **Automatic backups** (off until you enable them) on an interval, at fixed times of day, when the server stops, or when the last player leaves. Skipped when nothing changed.
 - **Automatic cleanup** keeps the last N backups plus hourly, daily, weekly and monthly ones. Optional age and size limits. Pinned backups are never removed.
 - **Safe full restores:** you confirm, a countdown warns everyone, a backup of the current world is taken first, and the restore is checked before the world loads. Every restore can be undone with `/cbackup rollback`.
 - **Restore just an area** (chunks, a region or a radius around you), including entities. Done live when nobody is near it, otherwise at the next restart, and undone with one click.

@@ -2,7 +2,7 @@
 	"schemaVersion": 1,
 	"id": "cytrabackups",
 	"version": "${version}",
-	"name": "CytraBackups",
+	"name": "Alloy Backups",
 	"description": "Deduplicating world backups for technical servers: chunk-level dedup, zstd, scheduled backups with GFS pruning, safe full and partial (chunk) restores with recycle-bin rollback, off-site copies and Discord notifications. Server-side; the optional client GUI is in the same jar.",
 	"authors": [
 		"SteelAspect"

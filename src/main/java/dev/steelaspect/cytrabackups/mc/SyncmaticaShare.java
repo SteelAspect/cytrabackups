@@ -55,13 +55,13 @@ public final class SyncmaticaShare {
 			find(placementClass, "move", 4, String.class).invoke(placement, dimension, pos, Rotation.NONE, Mirror.NONE);
 			Object comms = call(ctx, "getCommunicationManager");
 			boolean ok = (Boolean) find(comms.getClass(), "registerNewPlacement", 1, null).invoke(comms, placement);
-			if (!ok) throw new IOException("Cytra Syncmatica refused the schematic (too many shared schematics?)");
+			if (!ok) throw new IOException("Alloy Syncmatica refused the schematic (too many shared schematics?)");
 			return (UUID) call(placement, "getId");
 		} catch (IOException e) {
 			throw e;
 		} catch (ReflectiveOperationException | RuntimeException e) {
 			Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ite && ite.getCause() != null ? ite.getCause() : e;
-			throw new IOException("Could not share through Cytra Syncmatica: " + cause, cause);
+			throw new IOException("Could not share through Alloy Syncmatica: " + cause, cause);
 		}
 	}
 
@@ -93,7 +93,7 @@ public final class SyncmaticaShare {
 			return removed;
 		} catch (ReflectiveOperationException | RuntimeException e) {
 			Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ite && ite.getCause() != null ? ite.getCause() : e;
-			throw new IOException("Could not remove from Cytra Syncmatica: " + cause, cause);
+			throw new IOException("Could not remove from Alloy Syncmatica: " + cause, cause);
 		}
 	}
 
@@ -101,7 +101,7 @@ public final class SyncmaticaShare {
 		Class<?> syncmatica = Class.forName(PKG + "Syncmatica");
 		Object key = syncmatica.getField("SERVER_CONTEXT").get(null);
 		Object ctx = find(syncmatica, "getContext", 1, null).invoke(null, key);
-		if (ctx == null) throw new IOException("Cytra Syncmatica isn't running on this server");
+		if (ctx == null) throw new IOException("Alloy Syncmatica isn't running on this server");
 		return ctx;
 	}
 

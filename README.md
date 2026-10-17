@@ -1,4 +1,4 @@
-# CytraBackups
+# Alloy Backups
 
 ![Minecraft 1.21.11](https://img.shields.io/badge/Minecraft-1.21.11-3c8527)
 ![Fabric](https://img.shields.io/badge/loader-Fabric-dbd0b4)
@@ -40,7 +40,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 
 ## In-game menu
 
-With the mod on your client, open it with `/cbackupgui`, the **Backups** button in the pause menu, or a key you set in Controls > CytraBackups.
+With the mod on your client, open it with `/cbackupgui`, the **Backups** button in the pause menu, or a key you set in Controls > Alloy Backups.
 
 - **Backups:** select a backup to see its details, then Info, Compare, Restore (whole world), Area (pick chunks on a map), Verify, Export, Pin, Comment or Delete. Create new backups with an optional comment.
 - **Restore:** show, cancel or apply a queued restore, undo the last restore, or cancel a countdown.
@@ -112,7 +112,7 @@ In singleplayer, turn on cheats (or "Allow Commands" when opening to LAN).
 - **Full restores** stop the server (singleplayer: close the world) and are applied when it starts again, before the world loads. On hosts that don't restart automatically, set Settings > Restore > Apply mode to `shutdown`.
 - **Area restores** happen live only when no player is close enough to keep those chunks loaded (about view distance + 13 chunks, e.g. 416 blocks at render distance 12). Otherwise they are applied at the next restart, and the message says why.
 - **Settings** can be changed in the menu, or in `config/cytrabackups.json` followed by `/cbackup reload`. Every option has a comment explaining it.
-- **Recompress chunks** needs the bundled native zstd (Windows, Linux, macOS on x64 or ARM64). The first backup after switching it on or off re-reads the whole world, and backups made with it on need CytraBackups 1.5.0 or newer.
+- **Recompress chunks** needs the bundled native zstd (Windows, Linux, macOS on x64 or ARM64). The first backup after switching it on or off re-reads the whole world, and backups made with it on need Alloy Backups 1.5.0 or newer.
 
 ## Credits and license
 

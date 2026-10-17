@@ -9,7 +9,7 @@ import dev.steelaspect.cytrabackups.core.notify.DiscordWebhook;
 
 /** Maps backup events to Discord webhook posts according to the config toggles. */
 final class Notifier implements AutoCloseable {
-	private final DiscordWebhook hook = new DiscordWebhook("", "CytraBackups", msg -> CytraBackups.LOGGER.warn("CytraBackups: {}", msg));
+	private final DiscordWebhook hook = new DiscordWebhook("", "Alloy Backups", msg -> CytraBackups.LOGGER.warn("Alloy Backups: {}", msg));
 	private volatile CytraConfig cfg;
 	private final String serverName;
 

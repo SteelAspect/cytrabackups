@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 /** Server-side entrypoint (also runs in singleplayer's integrated server). */
 public final class CytraBackups implements ModInitializer {
 	public static final String MOD_ID = "cytrabackups";
-	public static final Logger LOGGER = LoggerFactory.getLogger("CytraBackups");
+	public static final Logger LOGGER = LoggerFactory.getLogger("Alloy Backups");
 
 	@Override
 	public void onInitialize() {

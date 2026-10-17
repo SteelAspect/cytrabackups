@@ -86,7 +86,7 @@ public final class BackupManager {
 
 	public static BackupManager get() {
 		BackupManager m = instance;
-		if (m == null) throw new IllegalStateException("CytraBackups is not running");
+		if (m == null) throw new IllegalStateException("Alloy Backups is not running");
 		return m;
 	}
 
@@ -120,10 +120,10 @@ public final class BackupManager {
 	private volatile CytraConfig config;
 	private volatile Services services;
 	private volatile OffsiteSync offsite;
-	private final ExecutorService jobExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-Job"));
-	private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-IO"));
-	private final ExecutorService offsiteExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("CytraBackups-Offsite"));
-	private final ExecutorService offsiteWorkers = Executors.newCachedThreadPool(Services.threadFactory("CytraBackups-Upload"));
+	private final ExecutorService jobExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("Alloy Backups-Job"));
+	private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("Alloy Backups-IO"));
+	private final ExecutorService offsiteExecutor = Executors.newSingleThreadExecutor(Services.threadFactory("Alloy Backups-Offsite"));
+	private final ExecutorService offsiteWorkers = Executors.newCachedThreadPool(Services.threadFactory("Alloy Backups-Upload"));
 	private final AtomicReference<Job> currentJob = new AtomicReference<>();
 	private final AtomicReference<Progress> offsiteProgress = new AtomicReference<>();
 	/** The running backup's uploads (off-site only mode), for the status. */
@@ -165,10 +165,10 @@ public final class BackupManager {
 	public static void start(MinecraftServer server) {
 		try {
 			instance = new BackupManager(server);
-			CytraBackups.LOGGER.info("CytraBackups: {} backups in {}", instance.services.repo.list().size(), instance.services.storage);
+			CytraBackups.LOGGER.info("Alloy Backups: {} backups in {}", instance.services.repo.list().size(), instance.services.storage);
 		} catch (Exception e) {
 			instance = null;
-			CytraBackups.LOGGER.error("CytraBackups failed to start; backups are disabled for this session", e);
+			CytraBackups.LOGGER.error("Alloy Backups failed to start; backups are disabled for this session", e);
 		}
 	}
 
@@ -226,7 +226,7 @@ public final class BackupManager {
 				fb.info("cytrabackups.job.cancelled", job.displayName());
 			} catch (Throwable t) {
 				String msg = rootMessage(t);
-				CytraBackups.LOGGER.error("CytraBackups: {} failed", job.displayName(), t);
+				CytraBackups.LOGGER.error("Alloy Backups: {} failed", job.displayName(), t);
 				fb.error("cytrabackups.job.failed", job.displayName(), msg);
 				if (name.equals(JOB_BACKUP)) notifier.backupFailure(job.displayName(), msg);
 			} finally {
@@ -260,7 +260,7 @@ public final class BackupManager {
 			try {
 				r.run();
 			} catch (Throwable t) {
-				CytraBackups.LOGGER.warn("CytraBackups: background task failed", t);
+				CytraBackups.LOGGER.warn("Alloy Backups: background task failed", t);
 			}
 		});
 	}
@@ -270,7 +270,7 @@ public final class BackupManager {
 			try {
 				services.repo.saveState();
 			} catch (IOException e) {
-				CytraBackups.LOGGER.warn("CytraBackups: could not save state: {}", e.getMessage());
+				CytraBackups.LOGGER.warn("Alloy Backups: could not save state: {}", e.getMessage());
 			}
 		});
 	}
@@ -326,9 +326,9 @@ public final class BackupManager {
 				streamTarget = OffsiteTargets.create(cfg, s.storage);
 				stream = new StreamingUpload(s.offsite, s.blobs, streamTarget, offsiteWorkers, OffsiteTargets.threads(cfg), bufferBytes(cfg), () -> {
 					// Upload-bound from here on: let the world save meanwhile instead of holding it for what can be hours.
-					CytraBackups.LOGGER.info("CytraBackups: uploading is slower than reading the world; world saving is back on for the rest of this backup");
+					CytraBackups.LOGGER.info("Alloy Backups: uploading is slower than reading the world; world saving is back on for the rest of this backup");
 					SaveControl.restore(server, previous.get());
-				}, msg -> CytraBackups.LOGGER.warn("CytraBackups offsite: {}", msg), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg), job.cancel());
+				}, msg -> CytraBackups.LOGGER.warn("Alloy Backups offsite: {}", msg), msg -> CytraBackups.LOGGER.info("Alloy Backups offsite: {}", msg), job.cancel());
 				s.blobs.setWriteHook(stream);
 				activeStream = stream;
 			}
@@ -347,7 +347,7 @@ public final class BackupManager {
 			req.cancel = job.cancel();
 			// off-site only: at most the upload buffer is ever written here
 			req.beforeWrite = bytes -> checkSpace(s, s.offsiteOnly ? Math.min(bytes, bufferBytes(cfg)) : bytes);
-			req.warnings = w -> CytraBackups.LOGGER.warn("CytraBackups: {}", w);
+			req.warnings = w -> CytraBackups.LOGGER.warn("Alloy Backups: {}", w);
 			out = s.backups.create(req);
 			SaveControl.restore(server, previous.get()); // the world is read; do not hold saving while the last uploads finish
 			if (stream != null) s.offsite.checkpoint(); // the new backup uses evicted data: persist where it is now
@@ -357,7 +357,7 @@ public final class BackupManager {
 					stream.finish();
 				} catch (IOException e) {
 					// The backup itself is complete here; the regular off-site sync uploads the rest later.
-					CytraBackups.LOGGER.warn("CytraBackups: {}; the rest is uploaded by the next off-site sync", e.getMessage());
+					CytraBackups.LOGGER.warn("Alloy Backups: {}; the rest is uploaded by the next off-site sync", e.getMessage());
 				}
 			}
 		} finally {
@@ -501,7 +501,7 @@ public final class BackupManager {
 		try {
 			PendingOperation existing = PendingOperationRunner.readPending(services.storage);
 			if (existing != null && existing.type != op.type) {
-				CytraBackups.LOGGER.warn("CytraBackups: replacing queued {} with {}", existing.describe(), op.describe());
+				CytraBackups.LOGGER.warn("Alloy Backups: replacing queued {} with {}", existing.describe(), op.describe());
 			}
 			PendingOperationRunner.writePending(services.storage, op);
 		} catch (IOException e) {
@@ -510,7 +510,7 @@ public final class BackupManager {
 		}
 		stoppingForRestore = true;
 		applyOnStop = config.restore.applyMode.equals("shutdown");
-		CytraBackups.LOGGER.info("CytraBackups: stopping the server to apply {} ({})", op.describe(),
+		CytraBackups.LOGGER.info("Alloy Backups: stopping the server to apply {} ({})", op.describe(),
 			applyOnStop ? "applied after shutdown" : "applied on next start, before the world loads");
 		Component kick = Component.literal(config.restore.kickMessage);
 		for (ServerPlayer p : new ArrayList<>(server.getPlayerList().getPlayers())) p.connection.disconnect(kick);
@@ -891,7 +891,7 @@ public final class BackupManager {
 		try {
 			return GarbageCollector.exclusiveBlobs(services.repo, ids, job.progress(), job.cancel());
 		} catch (IOException e) {
-			CytraBackups.LOGGER.warn("CytraBackups: could not work out which off-site data backup(s) {} use alone; it stays off-site: {}", ids, e.getMessage());
+			CytraBackups.LOGGER.warn("Alloy Backups: could not work out which off-site data backup(s) {} use alone; it stays off-site: {}", ids, e.getMessage());
 			return List.of();
 		}
 	}
@@ -954,7 +954,7 @@ public final class BackupManager {
 			s.repo.delete(d.backup().id);
 			if (config.offsite.enabled && config.offsite.mirrorDeletes) offsite.enqueueDeleteBackup(d.backup().id);
 			job.progress().addDone(1, 0);
-			CytraBackups.LOGGER.info("CytraBackups: pruned backup #{} ({})", d.backup().id, String.join(", ", d.reasons()));
+			CytraBackups.LOGGER.info("Alloy Backups: pruned backup #{} ({})", d.backup().id, String.join(", ", d.reasons()));
 		}
 		long freed = 0;
 		if (collect) {
@@ -1156,16 +1156,16 @@ public final class BackupManager {
 				if (sync.hasWork()) {
 					try (OffsiteTarget target = createTarget(cfg)) {
 						OffsiteSync.Result r = sync.process(target, offsiteWorkers, OffsiteTargets.threads(cfg), p, CancelToken.NONE);
-						CytraBackups.LOGGER.info("CytraBackups: off-site sync to {} done: {} backup(s), {} blobs ({}), {} deletions",
+						CytraBackups.LOGGER.info("Alloy Backups: off-site sync to {} done: {} backup(s), {} blobs ({}), {} deletions",
 							target.describe(), r.backupsUploaded(), r.blobsUploaded(), Formatting.bytes(r.bytesUploaded()), r.deleted());
 					}
 				}
 				if (s.offsiteOnly) {
 					long freed = sync.evictUploaded(s.blobs);
-					if (freed > 0) CytraBackups.LOGGER.info("CytraBackups: removed {} of uploaded backup data from this server (off-site only)", Formatting.bytes(freed));
+					if (freed > 0) CytraBackups.LOGGER.info("Alloy Backups: removed {} of uploaded backup data from this server (off-site only)", Formatting.bytes(freed));
 				}
 			} catch (Exception e) {
-				CytraBackups.LOGGER.warn("CytraBackups: off-site sync failed (will retry later): {}", rootMessage(e));
+				CytraBackups.LOGGER.warn("Alloy Backups: off-site sync failed (will retry later): {}", rootMessage(e));
 				notifier.backupFailure(Lang.get("cytrabackups.offsite.copy"), rootMessage(e));
 			} finally {
 				endSync(p);
@@ -1371,7 +1371,7 @@ public final class BackupManager {
 			if (cfg.schedule.onlyIfPlayersWereOnline && !st.playersSeenSinceBackup && !playersOnline) {
 				st.lastScheduledBackup = now;
 				saveState();
-				CytraBackups.LOGGER.info("CytraBackups: automatic backup skipped - no players were online since the last backup");
+				CytraBackups.LOGGER.info("Alloy Backups: automatic backup skipped - no players were online since the last backup");
 				return;
 			}
 			createBackup(Trigger.SCHEDULED, "", "scheduler", Feedback.console());
@@ -1392,7 +1392,7 @@ public final class BackupManager {
 		long now = System.currentTimeMillis();
 		if (free < threshold && (force || now - lastLowDiskWarning > 6 * 3_600_000L) && now - lastLowDiskWarning > 3_600_000L) {
 			lastLowDiskWarning = now;
-			CytraBackups.LOGGER.warn("CytraBackups: low disk space on the backup disk: {} free", Formatting.bytes(free));
+			CytraBackups.LOGGER.warn("Alloy Backups: low disk space on the backup disk: {} free", Formatting.bytes(free));
 			notifier.lowDisk(free, threshold);
 		}
 	}
@@ -1421,9 +1421,9 @@ public final class BackupManager {
 					// Discord was already notified when the restore was applied (StartupRestore); only players are told here.
 				}
 				PendingOperation op = PendingOperationRunner.readPending(services.storage);
-				if (op != null) CytraBackups.LOGGER.warn("CytraBackups: {} is queued and will be applied on the next restart", op.describe());
+				if (op != null) CytraBackups.LOGGER.warn("Alloy Backups: {} is queued and will be applied on the next restart", op.describe());
 			} catch (IOException e) {
-				CytraBackups.LOGGER.warn("CytraBackups: {}", e.getMessage());
+				CytraBackups.LOGGER.warn("Alloy Backups: {}", e.getMessage());
 			}
 		});
 	}
@@ -1439,7 +1439,7 @@ public final class BackupManager {
 	public void onServerStopped() {
 		jobExecutor.shutdown();
 		try {
-			if (!jobExecutor.awaitTermination(60, TimeUnit.SECONDS)) CytraBackups.LOGGER.warn("CytraBackups: job did not stop in time");
+			if (!jobExecutor.awaitTermination(60, TimeUnit.SECONDS)) CytraBackups.LOGGER.warn("Alloy Backups: job did not stop in time");
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
@@ -1449,7 +1449,7 @@ public final class BackupManager {
 		try {
 			boolean pending = PendingOperationRunner.readPending(s.storage) != null;
 			if (cfg.schedule.backupOnStop && !stoppingForRestore) {
-				CytraBackups.LOGGER.info("CytraBackups: creating shutdown backup");
+				CytraBackups.LOGGER.info("Alloy Backups: creating shutdown backup");
 				BackupService.Request req = new BackupService.Request();
 				req.worldDir = worldDir;
 				req.levelName = levelName;
@@ -1464,7 +1464,7 @@ public final class BackupManager {
 				req.beforeWrite = bytes -> checkSpace(s, bytes);
 				BackupService.Outcome out = s.backups.create(req);
 				if (out.meta() != null) {
-					CytraBackups.LOGGER.info("CytraBackups: shutdown backup #{} created", out.meta().id);
+					CytraBackups.LOGGER.info("Alloy Backups: shutdown backup #{} created", out.meta().id);
 					notifier.backupSuccess(out.meta());
 					if (cfg.offsite.enabled) offsite.enqueueUpload(out.meta().id);
 				}
@@ -1473,7 +1473,7 @@ public final class BackupManager {
 				StartupRestore.apply(cfg, s.storage, levelName, worldDir, "shutdown");
 			}
 		} catch (Exception e) {
-			CytraBackups.LOGGER.error("CytraBackups: shutdown work failed", e);
+			CytraBackups.LOGGER.error("Alloy Backups: shutdown work failed", e);
 			notifier.backupFailure(Lang.get("cytrabackups.job.shutdown"), rootMessage(e));
 		} finally {
 			ioExecutor.shutdown();

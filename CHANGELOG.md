@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to CytraBackups. Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
+All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
+
+## 1.7.1
+
+- **Renamed to Alloy Backups**, with the new Alloy logo. The jar is now `alloy-backups-<version>.jar`. Commands
+  (`/cbackup`), config and backup data are unchanged.
 
 ## 1.7.0
 

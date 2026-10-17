@@ -152,7 +152,7 @@ public final class BackupPreview {
 		CompoundTag meta = new CompoundTag();
 		meta.putString("Name", name);
 		meta.putString("Author", author);
-		meta.putString("Description", "CytraBackups preview at " + min.toShortString());
+		meta.putString("Description", "Alloy Backups preview at " + min.toShortString());
 		meta.putInt("RegionCount", 1);
 		meta.putLong("TotalVolume", volume);
 		meta.putLong("TotalBlocks", blocks);

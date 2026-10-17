@@ -59,4 +59,4 @@ jobs:
       - name: Ship only the mod jar
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release delete-asset "v${{ steps.version.outputs.version }}" "cytrabackups-${{ steps.version.outputs.version }}-sources.jar" -y -R "${{ github.repository }}" || true
+        run: gh release delete-asset "v${{ steps.version.outputs.version }}" "alloy-backups-${{ steps.version.outputs.version }}-sources.jar" -y -R "${{ github.repository }}" || true

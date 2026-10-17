@@ -139,8 +139,8 @@ public class CytraBackupsGameTest {
 				Block b = level.getBlockState(P).getBlock();
 				helper.assertTrue(b == Blocks.GOLD_BLOCK, "live chunk restore should bring back the gold block, found " + b);
 				forceLoad(level, false);
-				msgs.lines.forEach(l -> org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("[job message] {}", l));
-				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("On-disk full restore / restore / rollback: {}", diskResult.get());
+				msgs.lines.forEach(l -> org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("[job message] {}", l));
+				org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("On-disk full restore / restore / rollback: {}", diskResult.get());
 				// 5. undo: the area backup taken before the live restore records its area, so restoring it brings the emerald block back
 				BackupMeta pre = m.services().repo.latest().orElseThrow();
 				helper.assertTrue(pre.partial && pre.areaBoxes != null && pre.areaBoxes.size() == 1 && pre.areaBoxes.get(0).contains(CX, CZ)
@@ -156,7 +156,7 @@ public class CytraBackupsGameTest {
 				Block b = level.getBlockState(P).getBlock();
 				helper.assertTrue(b == Blocks.EMERALD_BLOCK, "the undo should bring back the emerald block, found " + b);
 				forceLoad(level, false);
-				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("Undo of the live area restore via its area backup: OK ({})", msgs.last());
+				org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("Undo of the live area restore via its area backup: OK ({})", msgs.last());
 			})
 			.thenSucceed();
 	}
@@ -195,8 +195,8 @@ public class CytraBackupsGameTest {
 			.thenExecute(() -> {
 				level.setChunkForced(cx, cz, false);
 				boolean sync = dev.steelaspect.cytrabackups.mc.SyncmaticaShare.available();
-				helper.assertTrue(msgs.last().contains(sync ? "shared through Cytra Syncmatica" : "saved as"),
-					(sync ? "with" : "without") + " Cytra Syncmatica: " + msgs.last());
+				helper.assertTrue(msgs.last().contains(sync ? "shared through Alloy Syncmatica" : "saved as"),
+					(sync ? "with" : "without") + " Alloy Syncmatica: " + msgs.last());
 				if (sync) {
 					Path ids = m.services().storage.resolve("previews").resolve("shared.txt");
 					helper.assertTrue(java.nio.file.Files.isRegularFile(ids), "the shared preview id should be remembered");
@@ -242,7 +242,7 @@ public class CytraBackupsGameTest {
 					"every chunk " + spread + " away should have a holder");
 				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread + 1, c.z - spread - 1, c.x + spread + 1, c.z + spread + 1)) == 0,
 					"no chunk " + (spread + 1) + " away should have a holder");
-				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("Chunk holders reach {} chunks beyond a player's view distance", spread);
+				org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("Chunk holders reach {} chunks beyond a player's view distance", spread);
 				level.getChunkSource().removeTicketWithRadius(TicketType.FORCED, c, 2);
 			})
 			.thenSucceed();

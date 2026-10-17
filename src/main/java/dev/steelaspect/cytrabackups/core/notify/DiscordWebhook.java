@@ -26,7 +26,7 @@ public final class DiscordWebhook implements AutoCloseable {
 	}
 
 	private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-		Thread t = new Thread(r, "CytraBackups-Discord");
+		Thread t = new Thread(r, "Alloy Backups-Discord");
 		t.setDaemon(true);
 		return t;
 	});
@@ -55,12 +55,12 @@ public final class DiscordWebhook implements AutoCloseable {
 		embed.addProperty("color", level.color);
 		embed.addProperty("timestamp", Instant.now().toString());
 		JsonObject footer = new JsonObject();
-		footer.addProperty("text", "CytraBackups");
+		footer.addProperty("text", "Alloy Backups");
 		embed.add("footer", footer);
 		JsonArray embeds = new JsonArray();
 		embeds.add(embed);
 		JsonObject body = new JsonObject();
-		body.addProperty("username", username == null || username.isBlank() ? "CytraBackups" : username);
+		body.addProperty("username", username == null || username.isBlank() ? "Alloy Backups" : username);
 		body.add("embeds", embeds);
 		JsonObject mentions = new JsonObject();
 		JsonArray parse = new JsonArray();
@@ -76,7 +76,7 @@ public final class DiscordWebhook implements AutoCloseable {
 		String target = url;
 		if (target == null || target.isBlank() || text.isBlank()) return;
 		JsonObject body = new JsonObject();
-		body.addProperty("username", username == null || username.isBlank() ? "CytraBackups" : username);
+		body.addProperty("username", username == null || username.isBlank() ? "Alloy Backups" : username);
 		body.addProperty("content", truncate(text, 1900));
 		post(target, body.toString());
 	}
@@ -88,7 +88,7 @@ public final class DiscordWebhook implements AutoCloseable {
 					HttpRequest req = HttpRequest.newBuilder(URI.create(target))
 						.timeout(Duration.ofSeconds(15))
 						.header("Content-Type", "application/json")
-						.header("User-Agent", "CytraBackups (Minecraft mod)")
+						.header("User-Agent", "Alloy Backups (Minecraft mod)")
 						.POST(HttpRequest.BodyPublishers.ofString(json))
 						.build();
 					HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());

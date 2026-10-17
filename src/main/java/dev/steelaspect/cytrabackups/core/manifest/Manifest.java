@@ -137,9 +137,9 @@ public final class Manifest {
 
 	public static Manifest read(InputStream rawIn) throws IOException {
 		DataInputStream in = new DataInputStream(new java.io.BufferedInputStream(new InflaterInputStream(rawIn), 1 << 16));
-		if (in.readInt() != MAGIC) throw new IOException("Not a CytraBackups manifest");
+		if (in.readInt() != MAGIC) throw new IOException("Not a Alloy Backups manifest");
 		int version = in.readInt();
-		if (version < 1 || version > VERSION) throw new IOException("Unsupported manifest version " + version + " (made by a newer CytraBackups)");
+		if (version < 1 || version > VERSION) throw new IOException("Unsupported manifest version " + version + " (made by a newer Alloy Backups)");
 		int count = in.readInt();
 		if (count < 0) throw new IOException("Corrupt manifest entry count");
 		List<ManifestEntry> list = new ArrayList<>(Math.min(count, 1 << 20));

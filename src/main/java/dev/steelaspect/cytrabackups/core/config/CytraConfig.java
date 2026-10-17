@@ -87,7 +87,7 @@ public final class CytraConfig {
 		public boolean enabled = false;
 		@Secret
 		public String webhookUrl = "";
-		public String username = "CytraBackups";
+		public String username = "Alloy Backups";
 		public boolean onBackupSuccess = true;
 		public boolean onBackupFailure = true;
 		public boolean onRestore = true;

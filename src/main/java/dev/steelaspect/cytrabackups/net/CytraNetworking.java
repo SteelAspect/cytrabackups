@@ -72,7 +72,7 @@ public final class CytraNetworking {
 			out.sendSystemMessage(Msg.error("cytrabackups.error.not_running"));
 			return;
 		}
-		CytraBackups.LOGGER.info("{} ran /{} from the CytraBackups GUI", player.getGameProfile().name(), cmd);
+		CytraBackups.LOGGER.info("{} ran /{} from the Alloy Backups GUI", player.getGameProfile().name(), cmd);
 		CommandSourceStack src = player.createCommandSourceStack().withSource(out);
 		player.level().getServer().getCommands().performPrefixedCommand(src, cmd);
 	}

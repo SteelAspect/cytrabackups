@@ -29,7 +29,7 @@ public final class StartupRestore {
 			Path storage = ModEnv.storageFor(cfg, levelId);
 			apply(cfg, storage, levelId, levelDir, "world load");
 		} catch (Throwable t) {
-			CytraBackups.LOGGER.error("CytraBackups: applying the queued restore failed; the world is loaded unchanged", t);
+			CytraBackups.LOGGER.error("Alloy Backups: applying the queued restore failed; the world is loaded unchanged", t);
 		}
 	}
 
@@ -40,13 +40,13 @@ public final class StartupRestore {
 		PendingOperation op = PendingOperationRunner.readPending(storage);
 		if (op == null && !Files.exists(journal)) return null;
 		try (Services s = Services.open(cfg, storage)) {
-			if (s.restore.recoverInterrupted(msg -> CytraBackups.LOGGER.warn("CytraBackups: {}", msg))) {
-				CytraBackups.LOGGER.warn("CytraBackups: an interrupted restore was rolled back; the world is in its pre-restore state");
+			if (s.restore.recoverInterrupted(msg -> CytraBackups.LOGGER.warn("Alloy Backups: {}", msg))) {
+				CytraBackups.LOGGER.warn("Alloy Backups: an interrupted restore was rolled back; the world is in its pre-restore state");
 			}
 			if (op == null) return null;
 			Path target = levelDir.toAbsolutePath().normalize();
 			if (op.worldDir != null && !Path.of(op.worldDir).toAbsolutePath().normalize().equals(target)) {
-				CytraBackups.LOGGER.warn("CytraBackups: queued restore targets {} but {} was opened; leaving it queued", op.worldDir, target);
+				CytraBackups.LOGGER.warn("Alloy Backups: queued restore targets {} but {} was opened; leaving it queued", op.worldDir, target);
 				return null;
 			}
 			RestoreResult result;
@@ -59,11 +59,11 @@ public final class StartupRestore {
 			} else {
 				op.attempts++;
 				PendingOperationRunner.writePending(storage, op);
-				CytraBackups.LOGGER.info("CytraBackups: applying {} before {} (world {})", op.describe(), when, levelId);
+				CytraBackups.LOGGER.info("Alloy Backups: applying {} before {} (world {})", op.describe(), when, levelId);
 				Progress progress = new Progress();
 				Thread logger = progressLogger(progress);
 				try {
-					result = s.runner(levelId, msg -> CytraBackups.LOGGER.info("CytraBackups: {}", msg), target)
+					result = s.runner(levelId, msg -> CytraBackups.LOGGER.info("Alloy Backups: {}", msg), target)
 						.apply(op, target, progress, CancelToken.NONE);
 				} finally {
 					logger.interrupt();
@@ -72,9 +72,9 @@ public final class StartupRestore {
 			PendingOperationRunner.writeResult(storage, result);
 			PendingOperationRunner.clearPending(storage);
 			if (result.success) {
-				CytraBackups.LOGGER.info("CytraBackups: {} (pre-restore backup #{})", result.message, result.preRestoreBackupId);
+				CytraBackups.LOGGER.info("Alloy Backups: {} (pre-restore backup #{})", result.message, result.preRestoreBackupId);
 			} else {
-				CytraBackups.LOGGER.error("CytraBackups: {} FAILED: {}. The world was left unchanged.", result.operation, result.message);
+				CytraBackups.LOGGER.error("Alloy Backups: {} FAILED: {}. The world was left unchanged.", result.operation, result.message);
 			}
 			notifyDiscord(cfg, result);
 			return result;
@@ -86,12 +86,12 @@ public final class StartupRestore {
 			try {
 				while (true) {
 					Thread.sleep(5000);
-					CytraBackups.LOGGER.info("CytraBackups: {} {} ({} / {}, {})", p.phase(), Formatting.percent(p.fraction()),
+					CytraBackups.LOGGER.info("Alloy Backups: {} {} ({} / {}, {})", p.phase(), Formatting.percent(p.fraction()),
 						p.done(), p.total(), Formatting.duration(System.currentTimeMillis() - p.startedAt()));
 				}
 			} catch (InterruptedException ignored) {
 			}
-		}, "CytraBackups-StartupProgress");
+		}, "Alloy Backups-StartupProgress");
 		t.setDaemon(true);
 		t.start();
 		return t;

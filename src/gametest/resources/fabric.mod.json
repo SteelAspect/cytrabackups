@@ -2,7 +2,7 @@
 	"schemaVersion": 1,
 	"id": "cytrabackups-gametest",
 	"version": "1.0.0",
-	"name": "CytraBackups GameTests",
+	"name": "Alloy Backups GameTests",
 	"authors": ["steelaspect"],
 	"environment": "*",
 	"entrypoints": {

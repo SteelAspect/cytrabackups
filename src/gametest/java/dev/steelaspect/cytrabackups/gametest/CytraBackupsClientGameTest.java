@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * and keyboard, and a singleplayer restore applied by the world-open mixin when the save is reopened.
  */
 public class CytraBackupsClientGameTest implements FabricClientGameTest {
-	private static final Logger LOG = LoggerFactory.getLogger("CytraBackups-ClientTest");
+	private static final Logger LOG = LoggerFactory.getLogger("Alloy Backups-ClientTest");
 
 	private static <T> T onServer(TestServerContext server, Function<MinecraftServer, T> f) {
 		return server.computeOnServer(f::apply);

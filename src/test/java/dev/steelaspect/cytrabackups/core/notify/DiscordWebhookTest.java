@@ -58,13 +58,13 @@ class DiscordWebhookTest {
 	@Test
 	void sendsDiscordEmbedPayload() {
 		List<String> errors = new CopyOnWriteArrayList<>();
-		try (DiscordWebhook hook = new DiscordWebhook(url(), "CytraBackups", errors::add)) {
+		try (DiscordWebhook hook = new DiscordWebhook(url(), "Alloy Backups", errors::add)) {
 			hook.send(DiscordWebhook.Level.SUCCESS, "Backup #7 created", "**Size:** 1.2 GiB");
 		}
 		assertEquals(1, bodies.size());
 		assertEquals("application/json", contentTypes.get(0));
 		JsonObject body = JsonParser.parseString(bodies.get(0)).getAsJsonObject();
-		assertEquals("CytraBackups", body.get("username").getAsString());
+		assertEquals("Alloy Backups", body.get("username").getAsString());
 		JsonObject embed = body.getAsJsonArray("embeds").get(0).getAsJsonObject();
 		assertEquals("Backup #7 created", embed.get("title").getAsString());
 		assertEquals("**Size:** 1.2 GiB", embed.get("description").getAsString());
@@ -107,7 +107,7 @@ class DiscordWebhookTest {
 		}
 		assertEquals(1, bodies.size());
 		JsonObject body = JsonParser.parseString(bodies.get(0)).getAsJsonObject();
-		assertEquals("CytraBackups", body.get("username").getAsString(), "Discord rejects an empty username");
+		assertEquals("Alloy Backups", body.get("username").getAsString(), "Discord rejects an empty username");
 		assertEquals("@here backup failed", body.get("content").getAsString());
 	}
 

@@ -60,7 +60,7 @@ final class ClientState {
 		return log.isEmpty() ? null : log.getLast();
 	}
 
-	/** Drops the "[CytraBackups]" chat prefix (also when wrapped by a command failure), keeping colours and links. */
+	/** Drops the "[Alloy Backups]" chat prefix (also when wrapped by a command failure), keeping colours and links. */
 	static Component stripPrefix(Component c) {
 		if (c.getContents() instanceof TranslatableContents t && t.getKey().equals("cytrabackups.chat.prefix")) {
 			MutableComponent out = Component.empty();

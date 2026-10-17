@@ -93,7 +93,7 @@ public class GuiChannelGameTest {
 				helper.assertTrue(guestOut.prompt == null, "no confirmation for a player without permission");
 				helper.assertTrue(!guestOut.lines.isEmpty() && !guestOut.text().contains("Delete backup"), "refused like the command: " + guestOut.text());
 				helper.assertTrue(m.services().repo.get(id[0]).isPresent(), "the backup is still there");
-				org.slf4j.LoggerFactory.getLogger("CytraBackups-GameTest").info("GUI channel: admin output {} lines, prompt ok; non-op got: {}",
+				org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("GUI channel: admin output {} lines, prompt ok; non-op got: {}",
 					adminOut.lines.size(), guestOut.last());
 				server.getPlayerList().remove(admin);
 			})

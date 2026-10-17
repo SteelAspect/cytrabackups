@@ -47,20 +47,20 @@ public final class Services implements AutoCloseable {
 		this.storage = storage;
 		int cores = Runtime.getRuntime().availableProcessors();
 		this.parallelism = config.workerThreads > 0 ? config.workerThreads : Math.max(1, Math.min(4, cores / 2));
-		this.workers = Executors.newFixedThreadPool(parallelism, threadFactory("CytraBackups-Worker"));
+		this.workers = Executors.newFixedThreadPool(parallelism, threadFactory("Alloy Backups-Worker"));
 		this.blobs = new BlobStore(storage.resolve("blobs"), storage.resolve("tmp"), compression(config), false);
 		this.repo = new BackupRepository(storage, blobs);
 		this.engine = new BackupEngine(blobs, workers, parallelism, settings(config));
 		this.backups = new BackupService(repo, engine, ModEnv.minecraftVersion(), ModEnv.modVersion());
 		this.restore = new RestoreEngine(blobs, workers, storage, config.trustModificationTime);
-		this.offsite = new OffsiteSync(repo, storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("CytraBackups offsite: {}", msg));
+		this.offsite = new OffsiteSync(repo, storage.resolve("offsite"), msg -> CytraBackups.LOGGER.info("Alloy Backups offsite: {}", msg));
 		if (config.offsite.enabled || offsite.hasRemoteOnlyData()) {
-			this.remotePool = Executors.newCachedThreadPool(threadFactory("CytraBackups-Download"));
+			this.remotePool = Executors.newCachedThreadPool(threadFactory("Alloy Backups-Download"));
 			this.remote = new OffsiteBlobs(offsite, () -> OffsiteTargets.create(config, storage), remotePool, OffsiteTargets.threads(config));
 			boolean sameTarget = boundToConfiguredTarget(config, storage, offsite);
 			this.offsiteOnly = OffsiteTargets.offsiteOnly(config) && sameTarget;
 			if (OffsiteTargets.offsiteOnly(config) && !sameTarget) {
-				CytraBackups.LOGGER.warn("CytraBackups: off-site only mode is paused: the off-site settings are incomplete or do not point to where the backup data is ({})",
+				CytraBackups.LOGGER.warn("Alloy Backups: off-site only mode is paused: the off-site settings are incomplete or do not point to where the backup data is ({})",
 					offsite.queue().targetId.isEmpty() ? "nothing uploaded yet" : offsite.queue().targetId);
 			}
 			blobs.attachRemote(remote, offsiteOnly);
@@ -125,7 +125,7 @@ public final class Services implements AutoCloseable {
 			try {
 				remote.close();
 			} catch (IOException e) {
-				CytraBackups.LOGGER.warn("CytraBackups: closing the off-site connection failed: {}", e.getMessage());
+				CytraBackups.LOGGER.warn("Alloy Backups: closing the off-site connection failed: {}", e.getMessage());
 			}
 			remotePool.shutdownNow();
 		}

@@ -3,12 +3,12 @@
 ![Minecraft 1.21.11](https://img.shields.io/badge/Minecraft-1.21.11-3c8527)
 ![Fabric](https://img.shields.io/badge/loader-Fabric-dbd0b4)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
-[![Latest release](https://img.shields.io/github/v/release/steelaspect/cytrabackups?label=download)](https://github.com/steelaspect/cytrabackups/releases/latest)
+[![Download](https://img.shields.io/badge/download-Alloy%20Releases-8a63d2)](https://steelaspect.github.io/cytra-releases/)
 
 **World backups for Fabric servers and singleplayer, Minecraft Java 1.21.11.**
 Only changed chunks are stored again, restores are safe and can be undone, and everything works from chat commands or an in-game menu.
 
-**[Download the latest release](https://github.com/steelaspect/cytrabackups/releases/latest)** | [What's new](CHANGELOG.md)
+**[Download the latest release](https://steelaspect.github.io/cytra-releases/)** | [What's new](CHANGELOG.md)
 
 | Backups | Settings |
 |---|---|
@@ -19,7 +19,7 @@ Only changed chunks are stored again, restores are safe and can be undone, and e
 ## Install
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) and [Fabric API](https://modrinth.com/mod/fabric-api) for Minecraft 1.21.11.
-2. Download `cytrabackups-<version>.jar` from [Releases](https://github.com/steelaspect/cytrabackups/releases/latest) and put it in the `mods/` folder of your server (or your singleplayer game).
+2. Download `alloy-backups-<version>.jar` from the [Alloy Releases page](https://steelaspect.github.io/cytra-releases/) and put it in the `mods/` folder of your server (or your singleplayer game).
 3. Start the game or server. Backups are stored in `backups/cytrabackups/` and the settings in `config/cytrabackups.json`.
 4. Automatic backups are **off** on a fresh install. Turn them on under Settings > Schedule > Enabled in the menu, or set `schedule.enabled` to `true` in the config and run `/cbackup reload`. Manual backups (`/cbackup create`) work either way.
 

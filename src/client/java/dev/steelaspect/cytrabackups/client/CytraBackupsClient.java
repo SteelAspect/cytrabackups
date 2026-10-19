@@ -19,6 +19,7 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
@@ -79,6 +80,19 @@ public final class CytraBackupsClient implements ClientModInitializer {
 			return;
 		}
 		ClientState.requestList();
-		mc.setScreen(new BackupScreen());
+		mc.setScreen(new BackupScreen(null));
+	}
+
+	/**
+	 * The screen Mod Menu opens: the menu when connected to a server with Alloy Backups, otherwise a notice saying
+	 * where it works. Both go back to {@code parent}.
+	 */
+	public static Screen screenFor(Screen parent) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player != null && ClientState.serverSupported()) {
+			ClientState.requestList();
+			return new BackupScreen(parent);
+		}
+		return new AlertScreen(() -> mc.setScreen(parent), Component.translatable("cytrabackups.gui.title"), Component.translatable("cytrabackups.gui.modmenu.no_world"));
 	}
 }

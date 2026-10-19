@@ -40,11 +40,11 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 			shot(ctx, 2, 11, "gui-3-tools" + suffix);
 			for (String section : new String[]{"schedule", "offsite"}) {
 				ctx.runOnClient(mc -> GuiPreviewData.settingsSection(section));
-				ctx.setScreen(() -> GuiPreviewData.settings(new BackupScreen()));
+				ctx.setScreen(() -> GuiPreviewData.settings(new BackupScreen(null)));
 				ctx.waitTicks(5);
 				ctx.takeScreenshot("gui-4-settings-" + section + suffix);
 			}
-			ctx.setScreen(() -> GuiPreviewData.form(new BackupScreen()));
+			ctx.setScreen(() -> GuiPreviewData.form(new BackupScreen(null)));
 			ctx.waitTicks(5);
 			ctx.takeScreenshot("gui-5-form" + suffix);
 			ctx.setScreen(() -> new ConfirmScreen(yes -> {
@@ -52,7 +52,7 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 				Component.translatable("cytrabackups.gui.confirm"), CommonComponents.GUI_CANCEL));
 			ctx.waitTicks(5);
 			ctx.takeScreenshot("gui-6-confirm" + suffix);
-			ctx.setScreen(() -> new ChunkSelectorScreen(new BackupScreen(), 11));
+			ctx.setScreen(() -> new ChunkSelectorScreen(new BackupScreen(null), 11));
 			ctx.waitTicks(5);
 			ctx.takeScreenshot("gui-7-area" + suffix);
 		}
@@ -62,7 +62,7 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 	private static void shot(ClientGameTestContext ctx, int tab, int id, String name) {
 		ctx.setScreen(() -> null); // an open BackupScreen stores its tab when it is replaced
 		ctx.runOnClient(mc -> GuiPreviewData.select(tab, id));
-		ctx.setScreen(BackupScreen::new);
+		ctx.setScreen(() -> new BackupScreen(null));
 		ctx.waitTicks(5);
 		ctx.takeScreenshot(name);
 	}

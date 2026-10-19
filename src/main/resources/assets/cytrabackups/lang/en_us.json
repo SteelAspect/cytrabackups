@@ -521,6 +521,7 @@
 	"cytrabackups.gui.pause_button": "Backups",
 	"cytrabackups.gui.pause_button.tooltip": "Open Alloy Backups",
 	"cytrabackups.gui.unsupported": "Alloy Backups is not installed on this server.",
+	"cytrabackups.gui.modmenu.no_world": "The Alloy Backups menu works inside a world, or on a server that has Alloy Backups. Open it there with the Backups button in the pause menu, /cbackupgui or its key.",
 	"cytrabackups.gui.confirm": "Confirm",
 	"cytrabackups.gui.loading": "Loading...",
 	"cytrabackups.gui.output.empty": "Command output appears here.",

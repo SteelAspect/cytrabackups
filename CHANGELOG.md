@@ -2,6 +2,10 @@
 
 All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.7.2
+
+- **Mod Menu button**: with Mod Menu installed, the config button opens the backup menu when you are in a world or on a server with Alloy Backups. Anywhere else it explains where the menu works. Done or Back returns to Mod Menu.
+
 ## 1.7.1
 
 - **Renamed to Alloy Backups**, with the new Alloy logo. The jar is now `alloy-backups-<version>.jar`. Commands

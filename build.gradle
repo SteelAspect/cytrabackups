@@ -11,6 +11,7 @@ base {
 
 repositories {
 	mavenCentral()
+	maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
 }
 
 loom {
@@ -55,6 +56,11 @@ dependencies {
 	// Permissions (LuckPerms etc.) with op-level fallback. Bundled (jar-in-jar).
 	modImplementation "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
 	include "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
+
+	// Optional: Mod Menu config button (client). Loaded in dev runs and client game tests.
+	modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+	modLocalRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
+	modGametestCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	// Pure-Java zstd (no native code). Bundled (jar-in-jar).
 	implementation "io.airlift:aircompressor:${project.aircompressor_version}"

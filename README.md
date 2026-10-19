@@ -40,7 +40,7 @@ Players don't need the mod to use it: every feature works through `/cbackup` com
 
 ## In-game menu
 
-With the mod on your client, open it with `/cbackupgui`, the **Backups** button in the pause menu, or a key you set in Controls > Alloy Backups.
+With the mod on your client, open it with `/cbackupgui`, the **Backups** button in the pause menu, a key you set in Controls > Alloy Backups, or the config button in Mod Menu.
 
 - **Backups:** select a backup to see its details, then Info, Compare, Restore (whole world), Area (pick chunks on a map), Verify, Export, Pin, Comment or Delete. Create new backups with an optional comment.
 - **Restore:** show, cancel or apply a queued restore, undo the last restore, or cancel a countdown.

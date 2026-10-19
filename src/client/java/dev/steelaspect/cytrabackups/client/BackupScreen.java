@@ -54,8 +54,17 @@ public final class BackupScreen extends Screen {
 	private int ticks;
 	private int logTop;
 
-	public BackupScreen() {
+	/** Where Done goes back to: Mod Menu's list, or null (back to the game). */
+	private final Screen parent;
+
+	public BackupScreen(Screen parent) {
 		super(Component.translatable("cytrabackups.gui.title"));
+		this.parent = parent;
+	}
+
+	@Override
+	public void onClose() {
+		minecraft.setScreen(parent);
 	}
 
 	/** The text, cut with "..." when wider than {@code maxWidth}. */

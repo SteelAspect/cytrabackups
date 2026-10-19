@@ -19,6 +19,9 @@
 		],
 		"client": [
 			"dev.steelaspect.cytrabackups.client.CytraBackupsClient"
+		],
+		"modmenu": [
+			"dev.steelaspect.cytrabackups.client.ModMenuIntegration"
 		]
 	},
 	"mixins": [

@@ -1,20 +1,26 @@
 package dev.steelaspect.cytrabackups.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import dev.steelaspect.alloyui.AlloyScreen;
+import dev.steelaspect.alloyui.Toast;
+import dev.steelaspect.alloyui.UiContext;
+import dev.steelaspect.alloyui.render.Draw;
+import dev.steelaspect.alloyui.theme.Theme;
+import dev.steelaspect.alloyui.theme.ThemeManager;
+import dev.steelaspect.alloyui.widget.Button;
+import dev.steelaspect.alloyui.widget.Container;
+import dev.steelaspect.alloyui.widget.Dropdown;
+import dev.steelaspect.alloyui.widget.Stepper;
+import dev.steelaspect.alloyui.widget.TextField;
+import dev.steelaspect.alloyui.widget.Widget;
 import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.mc.BackupCommands;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractSliderButton;
-import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.CycleButton;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -31,6 +37,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
+import org.jspecify.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -39,7 +46,7 @@ import org.lwjgl.glfw.GLFW;
  * with the zoom level or screen size. Drag with the left mouse button to select a rectangle, or type chunk coordinates.
  * The selection is restored from the chosen backup in the selected dimension, now or later with a copied command.
  */
-public final class ChunkSelectorScreen extends Screen {
+public final class ChunkSelectorScreen extends AlloyScreen {
 	private static final int SAMPLES = 4; // map texels per chunk side (one texel = 4x4 blocks)
 	private static final int MAX_RADIUS = 35; // chunks; the client never keeps more than render distance 32 + 3
 	private static final int PAINT_BUDGET = 768; // chunks painted per tick
@@ -47,116 +54,92 @@ public final class ChunkSelectorScreen extends Screen {
 	private static final int MAX_SELECT_RADIUS = 32;
 	private static final Identifier MAP_TEXTURE = Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "chunk_selector_map");
 	private static final int MARGIN = 8;
-	private static final int GRAY = 0xFFA0A0A0;
 
-	private final Screen parent;
 	private final int backupId;
 	private int centerX, centerZ;
 	private int cell = 8;
 	private Integer selX1, selZ1, selX2, selZ2;
 	private boolean dragging;
-	private EditBox x1Box, z1Box, x2Box, z2Box;
-	private CycleButton<String> dimensionButton;
+	private final TextField x1Box = box("x1"), z1Box = box("z1"), x2Box = box("x2"), z2Box = box("z2");
+	private final List<String> dimensions = new ArrayList<>();
 	private String dimension; // dimension to restore in; the map is only drawn for the one the player is in
 	private int radius = 2;
 	private DynamicTexture map;
 	private int originX, originZ, span; // map texture covers chunks originX.. originX+span-1 (same for Z)
 	private final LongSet painted = new LongOpenHashSet();
 	private int repaintTicks;
+	private final Controls controls;
 
-	public ChunkSelectorScreen(Screen parent, int backupId) {
-		super(Component.translatable("cytrabackups.gui.area.title", backupId));
-		this.parent = parent;
+	public ChunkSelectorScreen(@Nullable Screen parent, int backupId) {
+		super(Component.translatable("cytrabackups.gui.area.title", backupId), parent);
 		this.backupId = backupId;
-	}
-
-	@Override
-	protected void init() {
-		if (minecraft.player != null && selX1 == null) {
-			ChunkPos cp = minecraft.player.chunkPosition();
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player != null) {
+			ChunkPos cp = mc.player.chunkPosition();
 			centerX = cp.x;
 			centerZ = cp.z;
 		}
-		String here = currentDimension();
-		if (dimension == null) dimension = here;
-		List<String> dims = new ArrayList<>(ClientState.list != null ? ClientState.list.dimensions() : List.of());
-		if (!dims.contains(here) && !here.isEmpty()) dims.addFirst(here);
-		if (!dims.contains(dimension)) dimension = dims.isEmpty() ? here : dims.getFirst();
+		String here = currentDimension(mc);
+		dimension = here;
+		if (ClientState.list != null) dimensions.addAll(ClientState.list.dimensions());
+		if (!dimensions.contains(here) && !here.isEmpty()) dimensions.addFirst(here);
+		if (!dimensions.contains(dimension)) dimension = dimensions.isEmpty() ? here : dimensions.getFirst();
 
-		List<AbstractWidget> options = new ArrayList<>();
-		dimensionButton = null;
-		if (!dims.isEmpty()) {
-			dimensionButton = CycleButton.<String>builder(ChunkSelectorScreen::dimensionName, dimension).withValues(dims).displayOnlyValue()
-				.withTooltip(v -> Tooltip.create(Component.translatable("cytrabackups.gui.area.dimension.tooltip")))
-				.create(0, 0, 100, 20, Component.translatable("cytrabackups.gui.area.dimension"), (b, v) -> dimension = v);
-			options.add(dimensionButton);
+		List<Widget> options = new ArrayList<>();
+		if (!dimensions.isEmpty()) {
+			Dropdown<String> dims = new Dropdown<>(() -> dimensions, ChunkSelectorScreen::dimensionName, () -> dimension, v -> dimension = v);
+			dims.tooltip(Component.translatable("cytrabackups.gui.area.dimension.tooltip"));
+			options.add(dims);
 		}
-		options.add(new RadiusSlider());
-		options.add(button("cytrabackups.gui.area.around_me", "cytrabackups.gui.area.around_me.tooltip", 74, this::selectRadius));
-		options.add(button("cytrabackups.gui.area.region", "cytrabackups.gui.area.region.tooltip", 74, this::selectRegion));
-		row(height - 76, 4, options);
-
-		x1Box = box("x1");
-		z1Box = box("z1");
-		x2Box = box("x2");
-		z2Box = box("z2");
-		row(height - 52, 4, List.of(x1Box, z1Box, x2Box, z2Box, button("cytrabackups.gui.area.select", "cytrabackups.gui.area.select.tooltip", 60, this::fromBoxes)));
-
-		Button restore = Button.builder(Component.translatable("cytrabackups.gui.area.restore"), b -> restore()).width(150)
-			.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.area.restore.tooltip", backupId))).build();
-		Button copy = Button.builder(Component.translatable("cytrabackups.gui.area.copy"), b -> copyCommand()).width(150)
-			.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.area.copy.tooltip", backupId))).build();
-		row(height - 28, 8, List.of(restore, copy, Button.builder(CommonComponents.GUI_BACK, b -> onClose()).width(150).build()));
+		Stepper radiusStepper = new Stepper(0, MAX_SELECT_RADIUS, 1, true, () -> radius, v -> radius = v.intValue());
+		radiusStepper.tooltip(Component.translatable("cytrabackups.gui.area.radius.tooltip"));
+		options.add(radiusStepper);
+		options.add(button("cytrabackups.gui.area.around_me", "cytrabackups.gui.area.around_me.tooltip", this::selectRadius));
+		options.add(button("cytrabackups.gui.area.region", "cytrabackups.gui.area.region.tooltip", this::selectRegion));
+		Button restore = new Button(Component.translatable("cytrabackups.gui.area.restore"), this::restore).style(Button.Style.PRIMARY);
+		restore.tooltip(Component.translatable("cytrabackups.gui.area.restore.tooltip", backupId));
+		Button copy = new Button(Component.translatable("cytrabackups.gui.area.copy"), this::copyCommand);
+		copy.tooltip(Component.translatable("cytrabackups.gui.area.copy.tooltip", backupId));
+		controls = new Controls(
+			new ControlRow(options),
+			new ControlRow(List.of(x1Box, z1Box, x2Box, z2Box, button("cytrabackups.gui.area.select", "cytrabackups.gui.area.select.tooltip", this::fromBoxes))),
+			new ControlRow(List.of(new Button(CommonComponents.GUI_BACK, this::onClose), copy, restore)));
+		setRoot(controls);
 		syncBoxes();
 	}
 
-	private static Button button(String key, String tooltipKey, int width, Runnable action) {
-		return Button.builder(Component.translatable(key), b -> action.run()).width(width).tooltip(Tooltip.create(Component.translatable(tooltipKey))).build();
+	@Override
+	protected boolean useUiScale() {
+		return false; // the map works in GUI units, so the controls do too
 	}
 
-	private EditBox box(String hint) {
-		EditBox b = new EditBox(font, 0, 0, 44, 20, Component.literal(hint));
-		b.setHint(Component.literal(hint).withStyle(ChatFormatting.DARK_GRAY));
-		b.setMaxLength(8);
-		b.setFilter(t -> t.matches("-?\\d*"));
+	private static Button button(String key, String tooltipKey, Runnable action) {
+		Button b = new Button(Component.translatable(key), action);
+		b.tooltip(Component.translatable(tooltipKey));
 		return b;
 	}
 
-	/** Adds the widgets centred in one row at {@code y}, narrowed evenly when the screen is too small for them. */
-	private void row(int y, int gap, List<? extends AbstractWidget> widgets) {
-		int gaps = gap * (widgets.size() - 1), wanted = 0;
-		for (AbstractWidget w : widgets) wanted += w.getWidth();
-		double scale = Math.min(1, (width - 2 * MARGIN - gaps) / (double) wanted);
-		int total = gaps;
-		for (AbstractWidget w : widgets) {
-			w.setWidth((int) (w.getWidth() * scale));
-			total += w.getWidth();
-		}
-		int x = (width - total) / 2;
-		for (AbstractWidget w : widgets) {
-			w.setPosition(x, y);
-			addRenderableWidget(w);
-			x += w.getWidth() + gap;
-		}
+	private static TextField box(String hint) {
+		return new TextField(() -> "", v -> {}).live().maxLength(8).placeholder(Component.literal(hint))
+			.validator(t -> t.isEmpty() || t.matches("-?\\d+"), Component.translatable("cytrabackups.gui.area.bad_coords"));
 	}
 
 	private static Component dimensionName(String id) {
 		return Component.literal(id.startsWith("minecraft:") ? id.substring("minecraft:".length()) : id);
 	}
 
-	private String currentDimension() {
-		return minecraft.level == null ? "" : minecraft.level.dimension().identifier().toString();
+	private static String currentDimension(Minecraft mc) {
+		return mc.level == null ? "" : mc.level.dimension().identifier().toString();
 	}
 
 	private boolean showingMap() {
-		return dimension != null && dimension.equals(currentDimension());
+		return dimension != null && dimension.equals(currentDimension(minecraft));
 	}
 
 	private void selectRadius() {
 		if (minecraft.player == null) return;
 		ChunkPos cp = minecraft.player.chunkPosition();
-		dimension = currentDimension();
-		if (dimensionButton != null) dimensionButton.setValue(dimension);
+		dimension = currentDimension(minecraft);
 		selX1 = cp.x - radius;
 		selZ1 = cp.z - radius;
 		selX2 = cp.x + radius;
@@ -187,6 +170,8 @@ public final class ChunkSelectorScreen extends Screen {
 		syncBoxes();
 	}
 
+	// ---- map area, in GUI units: under the title, above the two text lines and the controls panel ----
+
 	private int gridLeft() {
 		return MARGIN;
 	}
@@ -196,11 +181,11 @@ public final class ChunkSelectorScreen extends Screen {
 	}
 
 	private int gridBottom() {
-		return height - 106;
+		return (int) controls.panelTop() - 30;
 	}
 
 	private int cols() {
-		return (width - 2 * MARGIN) / cell;
+		return Math.max(0, width - 2 * MARGIN) / cell;
 	}
 
 	private int rows() {
@@ -220,44 +205,38 @@ public final class ChunkSelectorScreen extends Screen {
 	}
 
 	@Override
-	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (super.mouseClicked(event, doubleClick)) return true;
-		if (event.button() == 0 && inGrid(event.x(), event.y())) {
-			selX1 = selX2 = chunkAtX(event.x());
-			selZ1 = selZ2 = chunkAtZ(event.y());
-			dragging = true;
-			syncBoxes();
-			return true;
-		}
-		return false;
+	protected boolean canvasClicked(MouseButtonEvent event, boolean doubleClick) {
+		if (event.button() != 0 || !inGrid(event.x(), event.y())) return false;
+		selX1 = selX2 = chunkAtX(event.x());
+		selZ1 = selZ2 = chunkAtZ(event.y());
+		dragging = true;
+		syncBoxes();
+		return true;
 	}
 
 	@Override
-	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-		if (dragging) {
-			selX2 = chunkAtX(Math.max(gridLeft(), Math.min(event.x(), gridLeft() + cols() * cell - 1)));
-			selZ2 = chunkAtZ(Math.max(gridTop(), Math.min(event.y(), gridTop() + rows() * cell - 1)));
-			syncBoxes();
-			return true;
-		}
-		return super.mouseDragged(event, dx, dy);
+	protected boolean canvasDragged(MouseButtonEvent event, double dx, double dy) {
+		if (!dragging) return false;
+		selX2 = chunkAtX(Math.max(gridLeft(), Math.min(event.x(), gridLeft() + cols() * cell - 1)));
+		selZ2 = chunkAtZ(Math.max(gridTop(), Math.min(event.y(), gridTop() + rows() * cell - 1)));
+		syncBoxes();
+		return true;
 	}
 
 	@Override
-	public boolean mouseReleased(MouseButtonEvent event) {
+	protected boolean canvasReleased(MouseButtonEvent event) {
 		dragging = false;
-		return super.mouseReleased(event);
+		return true;
 	}
 
 	@Override
-	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
+	protected boolean canvasScrolled(double x, double y, double scrollX, double scrollY) {
 		cell = Math.max(3, Math.min(24, cell + (int) Math.signum(scrollY)));
 		return true;
 	}
 
 	@Override
-	public boolean keyPressed(KeyEvent event) {
-		if (getFocused() instanceof EditBox && getFocused().isFocused()) return super.keyPressed(event);
+	protected boolean canvasKeyPressed(KeyEvent event) {
 		int step = 4;
 		switch (event.key()) {
 			case GLFW.GLFW_KEY_LEFT -> centerX -= step;
@@ -265,37 +244,36 @@ public final class ChunkSelectorScreen extends Screen {
 			case GLFW.GLFW_KEY_UP -> centerZ -= step;
 			case GLFW.GLFW_KEY_DOWN -> centerZ += step;
 			default -> {
-				return super.keyPressed(event);
+				return false;
 			}
 		}
 		return true;
 	}
 
 	private void syncBoxes() {
-		if (x1Box == null) return;
-		x1Box.setValue(selX1 == null ? "" : String.valueOf(Math.min(selX1, selX2)));
-		z1Box.setValue(selZ1 == null ? "" : String.valueOf(Math.min(selZ1, selZ2)));
-		x2Box.setValue(selX2 == null ? "" : String.valueOf(Math.max(selX1, selX2)));
-		z2Box.setValue(selZ2 == null ? "" : String.valueOf(Math.max(selZ1, selZ2)));
+		x1Box.setText(selX1 == null ? "" : String.valueOf(Math.min(selX1, selX2)));
+		z1Box.setText(selZ1 == null ? "" : String.valueOf(Math.min(selZ1, selZ2)));
+		x2Box.setText(selX2 == null ? "" : String.valueOf(Math.max(selX1, selX2)));
+		z2Box.setText(selZ2 == null ? "" : String.valueOf(Math.max(selZ1, selZ2)));
 	}
 
 	private void fromBoxes() {
 		try {
-			selX1 = Integer.parseInt(x1Box.getValue().trim());
-			selZ1 = Integer.parseInt(z1Box.getValue().trim());
-			selX2 = Integer.parseInt(x2Box.getValue().trim());
-			selZ2 = Integer.parseInt(z2Box.getValue().trim());
+			selX1 = Integer.parseInt(x1Box.text().trim());
+			selZ1 = Integer.parseInt(z1Box.text().trim());
+			selX2 = Integer.parseInt(x2Box.text().trim());
+			selZ2 = Integer.parseInt(z2Box.text().trim());
 			centerX = (selX1 + selX2) / 2;
 			centerZ = (selZ1 + selZ2) / 2;
 		} catch (NumberFormatException e) {
-			ClientState.log(Component.translatable("cytrabackups.gui.area.bad_coords"), true);
+			toast(Toast.Kind.ERROR, Component.translatable("cytrabackups.gui.area.bad_coords"));
 		}
 	}
 
 	/** The restore command for the selection (without the leading /cbackup), or null with a hint if nothing is selected. */
 	private String restoreCommand() {
 		if (selX1 == null || dimension == null || dimension.isEmpty()) {
-			ClientState.log(Component.translatable("cytrabackups.gui.area.nothing_selected"), true);
+			toast(Toast.Kind.ERROR, Component.translatable("cytrabackups.gui.area.nothing_selected"));
 			return null;
 		}
 		int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
@@ -313,7 +291,23 @@ public final class ChunkSelectorScreen extends Screen {
 		String command = restoreCommand();
 		if (command == null) return;
 		minecraft.keyboardHandler.setClipboard("/" + BackupCommands.ROOT + " " + command);
-		ClientState.log(Component.translatable("cytrabackups.gui.area.copied"), false);
+		toast(Toast.Kind.SUCCESS, Component.translatable("cytrabackups.gui.area.copied"));
+	}
+
+	/** For tests: the centre of the widget labelled {@code label} in GUI units, or null. */
+	public double @Nullable [] pointForTest(String label) {
+		Widget w = Dialogs.find(root(), label);
+		return w == null ? null : new double[] {w.x() + w.w() / 2, w.y() + w.h() / 2};
+	}
+
+	/** For tests: the centre of the map (the player's chunk when the screen opened), in GUI units. */
+	public double[] mapCenterForTest() {
+		return new double[] {gridLeft() + (cols() / 2) * cell + cell / 2.0, gridTop() + (rows() / 2) * cell + cell / 2.0};
+	}
+
+	/** For tests: the size of one chunk on the map, in GUI units. */
+	public int cellForTest() {
+		return cell;
 	}
 
 	/** Creates the map texture for the client's loaded area around the player, once per screen visit. */
@@ -397,6 +391,7 @@ public final class ChunkSelectorScreen extends Screen {
 
 	@Override
 	public void removed() {
+		super.removed();
 		if (map != null) {
 			minecraft.getTextureManager().release(MAP_TEXTURE);
 			map = null;
@@ -404,16 +399,15 @@ public final class ChunkSelectorScreen extends Screen {
 	}
 
 	@Override
-	public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-		super.render(g, mouseX, mouseY, partialTick);
-		g.drawCenteredString(font, title, width / 2, 8, 0xFFFFFFFF);
+	protected void renderCanvas(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+		Theme t = ThemeManager.get();
+		Draw.heading(g, title, MARGIN + 2, 8, t.color("text"));
 		ensureMap();
 		int cols = cols(), rows = rows();
 		int left = gridLeft(), top = gridTop(), right = left + cols * cell, bottom = top + rows * cell;
 		int startX = centerX - cols / 2, startZ = centerZ - rows / 2;
 		// A handful of draw calls per frame: background, the map texture, region lines, selection and markers.
-		g.fill(left, top, right, bottom, 0xFF000000);
-		g.renderOutline(left - 1, top - 1, right - left + 2, bottom - top + 2, GRAY);
+		Draw.panel(g, left - 1, top - 1, right - left + 2, bottom - top + 2, t.metricF("radiusSmall"), t.color("bg"), t.color("border"), t.metricF("borderWidth"));
 		if (map != null && showingMap()) {
 			int mx = left + (originX - startX) * cell, my = top + (originZ - startZ) * cell, size = span * cell, tex = span * SAMPLES;
 			g.enableScissor(left, top, right, bottom);
@@ -421,54 +415,51 @@ public final class ChunkSelectorScreen extends Screen {
 			g.disableScissor();
 		} else if (rows > 0) {
 			Component noMap = Component.translatable("cytrabackups.gui.area.no_map", dimension == null ? "" : dimensionName(dimension));
-			g.drawCenteredString(font, BackupScreen.clip(font, noMap, right - left - 8), left + (right - left) / 2, top + (bottom - top) / 2 - 4, GRAY);
+			float w = Math.min(Draw.textWidth(noMap), right - left - 8);
+			Draw.textClipped(g, noMap, left + (right - left - w) / 2, top + (bottom - top) / 2f - 4, right - left - 8, t.color("textMuted"));
 		}
-		for (int c = Math.floorMod(-startX, 32); c < cols; c += 32) g.fill(left + c * cell, top, left + c * cell + 1, bottom, 0x60FFFFFF);
-		for (int r = Math.floorMod(-startZ, 32); r < rows; r += 32) g.fill(left, top + r * cell, right, top + r * cell + 1, 0x60FFFFFF);
+		int line = Draw.withAlpha(t.color("text"), 0.3f);
+		for (int c = Math.floorMod(-startX, 32); c < cols; c += 32) g.fill(left + c * cell, top, left + c * cell + 1, bottom, line);
+		for (int r = Math.floorMod(-startZ, 32); r < rows; r += 32) g.fill(left, top + r * cell, right, top + r * cell + 1, line);
 		if (selX1 != null) {
 			int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
 			int sx1 = Math.max(left, left + (x1 - startX) * cell), sz1 = Math.max(top, top + (z1 - startZ) * cell);
 			int sx2 = Math.min(right, left + (x2 - startX + 1) * cell), sz2 = Math.min(bottom, top + (z2 - startZ + 1) * cell);
 			if (sx2 > sx1 && sz2 > sz1) {
-				g.fill(sx1, sz1, sx2, sz2, 0x40FFFFFF);
-				g.renderOutline(sx1, sz1, sx2 - sx1, sz2 - sz1, 0xFFFFFFFF);
+				g.fill(sx1, sz1, sx2, sz2, Draw.withAlpha(t.color("accent"), 0.3f));
+				g.renderOutline(sx1, sz1, sx2 - sx1, sz2 - sz1, t.color("accent"));
 			}
 		}
 		if (minecraft.player != null && showingMap()) {
 			ChunkPos pc = minecraft.player.chunkPosition();
 			int px = left + (pc.x - startX) * cell + cell / 2, py = top + (pc.z - startZ) * cell + cell / 2;
 			if (px >= left && py >= top && px < right && py < bottom) {
-				g.fill(px - 3, py - 3, px + 3, py + 3, 0xFF000000);
-				g.fill(px - 2, py - 2, px + 2, py + 2, 0xFFFFFFFF);
+				g.fill(px - 3, py - 3, px + 3, py + 3, t.color("bg"));
+				g.fill(px - 2, py - 2, px + 2, py + 2, t.color("text"));
 			}
 		}
-		int textW = width - 2 * MARGIN;
-		g.drawString(font, BackupScreen.clip(font, selectionText(), textW), MARGIN, height - 100, 0xFFFFFFFF);
+		int textW = width - 2 * MARGIN, ty = gridBottom() + 6;
+		Draw.textClipped(g, selectionText(), MARGIN, ty, textW, t.color(selX1 == null ? "textMuted" : "text"));
 		Component second = null;
-		int color = GRAY;
-		if (inGrid(mouseX, mouseY)) {
+		int color = t.color("textMuted");
+		if (canvasHovered() && inGrid(mouseX, mouseY)) {
 			int hx = chunkAtX(mouseX), hz = chunkAtZ(mouseY);
 			second = Component.translatable("cytrabackups.gui.area.hover", hx, hz, hx * 16, hz * 16, Math.floorDiv(hx, 32), Math.floorDiv(hz, 32));
 		} else {
 			ClientState.LogLine last = ClientState.lastLog();
 			if (last != null && System.currentTimeMillis() - last.at() < 30_000) {
 				second = last.text();
-				color = last.error() ? 0xFFFF5555 : 0xFFFFFFFF;
+				color = t.color(last.error() ? "bad" : "text");
 			}
 		}
-		if (second != null) g.drawString(font, BackupScreen.clip(font, second, textW), MARGIN, height - 89, color);
+		if (second != null) Draw.textClipped(g, second, MARGIN, ty + 11, textW, color);
 	}
 
 	private Component selectionText() {
-		if (selX1 == null) return Component.translatable("cytrabackups.gui.area.hint").withStyle(ChatFormatting.GRAY);
+		if (selX1 == null) return Component.translatable("cytrabackups.gui.area.hint");
 		int x1 = Math.min(selX1, selX2), x2 = Math.max(selX1, selX2), z1 = Math.min(selZ1, selZ2), z2 = Math.max(selZ1, selZ2);
 		long count = (long) (x2 - x1 + 1) * (z2 - z1 + 1);
 		return Component.translatable(count == 1 ? "cytrabackups.gui.area.selection.one" : "cytrabackups.gui.area.selection", x1, z1, x2, z2, count, x1 * 16, z1 * 16, x2 * 16 + 15, z2 * 16 + 15);
-	}
-
-	@Override
-	public void onClose() {
-		minecraft.setScreen(parent);
 	}
 
 	@Override
@@ -476,22 +467,78 @@ public final class ChunkSelectorScreen extends Screen {
 		return false;
 	}
 
-	/** Radius for "Around me", 0 to 32 chunks. */
-	private final class RadiusSlider extends AbstractSliderButton {
-		RadiusSlider() {
-			super(0, 0, 80, 20, Component.empty(), radius / (double) MAX_SELECT_RADIUS);
-			setTooltip(Tooltip.create(Component.translatable("cytrabackups.gui.area.radius.tooltip")));
-			updateMessage();
+	/** The controls panel at the bottom: three rows in a Nocturne panel. */
+	private static final class Controls extends Container {
+		private static final float PAD = 6, ROW = 16, GAP = 4;
+		private final List<ControlRow> rows;
+		private float px, py, pw, ph;
+
+		Controls(ControlRow... rows) {
+			this.rows = List.of(rows);
+			for (ControlRow r : rows) add(r);
+		}
+
+		float panelTop() {
+			return py;
 		}
 
 		@Override
-		protected void updateMessage() {
-			setMessage(Component.translatable("cytrabackups.gui.area.radius", radius));
+		public float measure(float width) {
+			return 0;
 		}
 
 		@Override
-		protected void applyValue() {
-			radius = (int) Math.round(value * MAX_SELECT_RADIUS);
+		protected void layout() {
+			pw = Math.min(w - 2 * MARGIN, 520);
+			ph = rows.size() * ROW + (rows.size() - 1) * GAP + 2 * PAD;
+			px = x + (w - pw) / 2;
+			py = y + h - MARGIN - ph;
+			float cy = py + PAD;
+			for (ControlRow r : rows) {
+				r.setBounds(px + PAD, cy, pw - 2 * PAD, ROW);
+				cy += ROW + GAP;
+			}
+		}
+
+		@Override
+		protected void renderWidget(UiContext ctx) {
+			var t = ctx.theme;
+			Draw.panel(ctx.g, px, py, pw, ph, t.metricF("radiusLarge"), t.color("panel"), t.color("border"), t.metricF("borderWidth"));
+			super.renderWidget(ctx);
+		}
+	}
+
+	/** Controls side by side, centred, narrowed evenly when the row is too small for them. */
+	private static final class ControlRow extends Container {
+		private static final float GAP = 4;
+
+		ControlRow(List<? extends Widget> widgets) {
+			for (Widget w : widgets) add(w);
+		}
+
+		private static float wanted(Widget w) {
+			if (w instanceof Button b) return Math.max(60, b.preferredWidth());
+			if (w instanceof TextField) return 48;
+			if (w instanceof Stepper) return 64;
+			return 110;
+		}
+
+		@Override
+		public float measure(float width) {
+			return 16;
+		}
+
+		@Override
+		protected void layout() {
+			float gaps = GAP * (children.size() - 1), total = 0;
+			for (Widget c : children) total += wanted(c);
+			float scale = Math.min(1, (w - gaps) / Math.max(1, total));
+			float cx = x + (w - total * scale - gaps) / 2;
+			for (Widget c : children) {
+				float cw = wanted(c) * scale;
+				c.setBounds(cx, y, cw, 16);
+				cx += cw + GAP;
+			}
 		}
 	}
 }

@@ -19,11 +19,8 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.screens.AlertScreen;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -54,7 +51,7 @@ public final class CytraBackupsClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(BackupListPayload.TYPE, (payload, context) -> ClientState.update(payload));
 		ClientPlayNetworking.registerGlobalReceiver(MessagePayload.TYPE, (payload, context) -> ClientState.message(payload));
 		ClientPlayNetworking.registerGlobalReceiver(ConfigPayload.TYPE, (payload, context) -> ClientState.config(payload));
-		ClientPlayNetworking.registerGlobalReceiver(PromptPayload.TYPE, (payload, context) -> prompt(context.client(), payload));
+		ClientPlayNetworking.registerGlobalReceiver(PromptPayload.TYPE, (payload, context) -> Dialogs.prompt(payload));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientState.clear());
 		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
 			if (screen instanceof PauseScreen && ClientState.serverSupported()) {
@@ -62,15 +59,6 @@ public final class CytraBackupsClient implements ClientModInitializer {
 					.tooltip(Tooltip.create(Component.translatable("cytrabackups.gui.pause_button.tooltip"))).build());
 			}
 		});
-	}
-
-	/** A GUI action needs confirmation: show a dialog and answer with /cbackup confirm|deny <token>. */
-	private static void prompt(Minecraft mc, PromptPayload p) {
-		Screen back = mc.screen;
-		mc.setScreen(new ConfirmScreen(yes -> {
-			mc.setScreen(back);
-			ClientState.run((yes ? "confirm " : "deny ") + p.token());
-		}, Component.literal(p.title()), Component.literal(p.details()), Component.translatable("cytrabackups.gui.confirm"), CommonComponents.GUI_CANCEL));
 	}
 
 	public static void open(Minecraft mc) {
@@ -93,6 +81,8 @@ public final class CytraBackupsClient implements ClientModInitializer {
 			ClientState.requestList();
 			return new BackupScreen(parent);
 		}
-		return new AlertScreen(() -> mc.setScreen(parent), Component.translatable("cytrabackups.gui.title"), Component.translatable("cytrabackups.gui.modmenu.no_world"));
+		Dialogs.HostScreen host = new Dialogs.HostScreen(parent);
+		host.openOverlay(Dialogs.notice(Component.translatable("cytrabackups.gui.title"), Component.translatable("cytrabackups.gui.modmenu.no_world")), true);
+		return host;
 	}
 }

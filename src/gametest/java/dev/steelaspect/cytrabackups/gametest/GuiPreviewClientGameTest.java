@@ -5,9 +5,6 @@ import dev.steelaspect.cytrabackups.client.ChunkSelectorScreen;
 import dev.steelaspect.cytrabackups.client.GuiPreviewData;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
-import net.minecraft.client.gui.screens.ConfirmScreen;
-import net.minecraft.network.chat.CommonComponents;
-import net.minecraft.network.chat.Component;
 
 /**
  * Renders every CytraBackups screen with sample data on the title screen (no world needed) and saves screenshots to
@@ -27,6 +24,7 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		ctx.runOnClient(mc -> mc.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MASTER).set(0.0)); // muted test client
 		ctx.runOnClient(mc -> GuiPreviewData.load());
 		for (Setup setup : SETUPS) {
 			ctx.getInput().resizeWindow(setup.width(), setup.height());
@@ -44,13 +42,13 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 				ctx.waitTicks(5);
 				ctx.takeScreenshot("gui-4-settings-" + section + suffix);
 			}
-			ctx.setScreen(() -> GuiPreviewData.form(new BackupScreen(null)));
-			ctx.waitTicks(5);
+			shot(ctx, 0, 11, null);
+			ctx.runOnClient(mc -> GuiPreviewData.form());
+			ctx.waitTicks(8);
 			ctx.takeScreenshot("gui-5-form" + suffix);
-			ctx.setScreen(() -> new ConfirmScreen(yes -> {
-			}, Component.literal("Delete backup #11 (2026-09-29 01:42, pre-restore)?"), Component.literal("This can't be undone. Expires in 30s."),
-				Component.translatable("cytrabackups.gui.confirm"), CommonComponents.GUI_CANCEL));
-			ctx.waitTicks(5);
+			shot(ctx, 0, 11, null);
+			ctx.runOnClient(mc -> GuiPreviewData.confirm());
+			ctx.waitTicks(8);
 			ctx.takeScreenshot("gui-6-confirm" + suffix);
 			ctx.setScreen(() -> new ChunkSelectorScreen(new BackupScreen(null), 11));
 			ctx.waitTicks(5);
@@ -64,6 +62,6 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 		ctx.runOnClient(mc -> GuiPreviewData.select(tab, id));
 		ctx.setScreen(() -> new BackupScreen(null));
 		ctx.waitTicks(5);
-		ctx.takeScreenshot(name);
+		if (name != null) ctx.takeScreenshot(name);
 	}
 }

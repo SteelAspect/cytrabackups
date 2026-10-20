@@ -1,6 +1,6 @@
 # Alloy Backups 1.8.0: Nocturne menus
 
-Status: **draft, waiting for the user's OK**. Nothing in this plan is built yet.
+Status: **built** on 2026-10-20 (1.8.0). Small differences from the plan: the settings rows use Alloy UI's `Rows` helpers directly (same widgets as `Options`), and the Mod Menu notice is a one-button notice instead of a `Dialog`.
 
 ## Goal
 

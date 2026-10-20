@@ -15,7 +15,6 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
 import net.minecraft.client.gui.screens.ChatScreen;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,10 +40,11 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 	}
 
 	private static void waitUntil(ClientGameTestContext ctx, String what, java.util.function.BooleanSupplier condition) {
-		for (int i = 0; i < 1200; i++) {
+		for (int i = 0; i < 600; i++) {
 			if (condition.getAsBoolean()) return;
 			ctx.waitTicks(5);
 		}
+		ctx.takeScreenshot("cytrabackups-timeout");
 		throw new AssertionError("Timed out waiting for: " + what);
 	}
 
@@ -59,15 +59,18 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 		ctx.getInput().setCursorPos(guiX * scale, guiY * scale);
 	}
 
-	/** Rows are 24 high and start below the tab bar (24) plus the list's top padding. */
-	private static void clickRow(ClientGameTestContext ctx, int row) {
-		cursor(ctx, 60, 42 + row * 24);
-		ctx.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
-		ctx.waitTicks(2);
+	/** Waits until the Alloy UI widget labelled {@code label} is on screen (a dialog's button, a list row "#id"). */
+	private static void waitFor(ClientGameTestContext ctx, String label) {
+		waitUntil(ctx, "\"" + label + "\" on screen", () -> ctx.computeOnClient(mc -> switch (mc.screen) {
+			case BackupScreen s -> s.pointForTest(label) != null;
+			case ChunkSelectorScreen s -> s.pointForTest(label) != null;
+			case null, default -> false;
+		}));
 	}
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		ctx.runOnClient(mc -> mc.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MASTER).set(0.0)); // muted test client
 		if (System.getenv("CYTRA_GUI_PREVIEW_ONLY") != null) return; // only the GUI preview screenshots
 		BlockPos marker;
 		int beforeId;
@@ -100,36 +103,37 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(30);
 			ctx.takeScreenshot("cytrabackups-1-backup-list");
 
-			ctx.clickScreenButton("Create backup");
+			ModMenuClientGameTest.click(ctx, "Create backup");
 			waitForIdle(ctx, server, 2);
 			ctx.waitTicks(60); // list refresh
 			ctx.takeScreenshot("cytrabackups-2-after-create");
 			LOG.info("GUI create backup: OK ({} backups)", backups(server).size());
 
-			clickRow(ctx, 1); // newest first: row 1 is "singleplayer-before"
-			ctx.clickScreenButton("Pin");
+			waitFor(ctx, "#" + beforeId);
+			ModMenuClientGameTest.click(ctx, "#" + beforeId);
+			ModMenuClientGameTest.click(ctx, "Pin");
 			waitUntil(ctx, "backup pinned", () -> onServer(server, s -> BackupManager.get().services().repo.get(beforeId).orElseThrow().pinned));
 			LOG.info("GUI pin: OK");
 
-			clickRow(ctx, 1);
-			ctx.clickScreenButton("Area...");
+			ModMenuClientGameTest.click(ctx, "#" + beforeId);
+			ModMenuClientGameTest.click(ctx, "Area...");
 			ctx.waitForScreen(ChunkSelectorScreen.class);
 			ctx.waitTicks(10);
-			int w = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledWidth());
-			int h = ctx.computeOnClient(mc -> mc.getWindow().getGuiScaledHeight());
-			int cx = 8 + ((w - 16) / 8 / 2) * 8 + 4, cy = 22 + ((h - 128) / 8 / 2) * 8 + 4; // centre of the player's chunk
-			cursor(ctx, cx - 8, cy - 8);
+			double[] centre = ctx.computeOnClient(mc -> ((ChunkSelectorScreen) mc.screen).mapCenterForTest()); // the player's chunk
+			int cell = ctx.computeOnClient(mc -> ((ChunkSelectorScreen) mc.screen).cellForTest());
+			double cx = centre[0], cy = centre[1];
+			cursor(ctx, cx - cell, cy - cell);
 			ctx.getInput().holdMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTick();
-			cursor(ctx, cx + 8, cy + 8);
+			cursor(ctx, cx + cell, cy + cell);
 			ctx.waitTick();
 			ctx.getInput().releaseMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTicks(2);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
-			ctx.clickScreenButton("Restore...");
-			ctx.waitForScreen(ConfirmScreen.class); // the server's confirmation, shown as a dialog
+			ModMenuClientGameTest.click(ctx, "Restore...");
+			waitFor(ctx, "Confirm"); // the server's confirmation, shown as a dialog
 			ctx.takeScreenshot("cytrabackups-4-confirm-chunks");
-			ctx.clickScreenButton("Confirm");
+			ModMenuClientGameTest.click(ctx, "Confirm");
 			waitUntil(ctx, "chunk restore queued", () -> onServer(server, s -> {
 				try {
 					PendingOperation op = PendingOperationRunner.readPending(BackupManager.get().services().storage);
@@ -142,13 +146,13 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.takeScreenshot("cytrabackups-5-chunk-restore-queued");
 			LOG.info("GUI chunk selector restore: queued (player is standing in the area)");
 			server.runCommand("cbackup pending cancel");
-			ctx.clickScreenButton("Back"); // the dialog returned to the chunk selector
+			ModMenuClientGameTest.click(ctx, "Back"); // the dialog closed over the chunk selector
 			ctx.waitForScreen(BackupScreen.class);
 
-			clickRow(ctx, 1);
-			ctx.clickScreenButton("Restore...");
-			ctx.waitForScreen(ConfirmScreen.class);
-			ctx.clickScreenButton("Confirm");
+			ModMenuClientGameTest.click(ctx, "#" + beforeId);
+			ModMenuClientGameTest.click(ctx, "Restore...");
+			waitFor(ctx, "Confirm");
+			ModMenuClientGameTest.click(ctx, "Confirm");
 			waitUntil(ctx, "restore countdown", () -> onServer(server, s -> BackupManager.get().countdownLabel() != null));
 			ctx.waitTicks(20);
 			ctx.takeScreenshot("cytrabackups-6-restore-countdown");

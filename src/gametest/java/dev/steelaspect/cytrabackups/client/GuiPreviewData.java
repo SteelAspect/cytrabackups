@@ -4,6 +4,7 @@ import dev.steelaspect.cytrabackups.core.config.ConfigSchema;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import dev.steelaspect.cytrabackups.net.BackupListPayload;
 import dev.steelaspect.cytrabackups.net.ConfigPayload;
+import dev.steelaspect.cytrabackups.net.PromptPayload;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,9 +70,15 @@ public final class GuiPreviewData {
 		return new SettingsScreen(parent);
 	}
 
-	public static Screen form(Screen parent) {
-		return new FormScreen(parent, Component.translatable("cytrabackups.gui.comment.title", 14),
-			List.of(new FormScreen.Field("cytrabackups.gui.comment.field", "before the dragon fight", 200)), v -> {
+	/** Opens the comment dialog on the current (Alloy) screen. */
+	public static void form() {
+		Dialogs.form(Component.translatable("cytrabackups.gui.comment.title", 14), Component.empty(),
+			List.of(new Dialogs.Field("cytrabackups.gui.comment.field", "before the dragon fight", 200)), v -> {
 			});
+	}
+
+	/** Opens a server-style confirmation on the current (Alloy) screen. Cancelling it would send "deny", so tests close the screen instead. */
+	public static void confirm() {
+		Dialogs.prompt(new PromptPayload("preview", "Delete backup #11 (2026-09-29 01:42, pre-restore)?", "This can't be undone. Expires in 30s.", 30));
 	}
 }

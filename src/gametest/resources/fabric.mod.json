@@ -13,7 +13,8 @@
 		],
 		"fabric-client-gametest": [
 			"dev.steelaspect.cytrabackups.gametest.GuiPreviewClientGameTest",
-			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest"
+			"dev.steelaspect.cytrabackups.gametest.CytraBackupsClientGameTest",
+			"dev.steelaspect.cytrabackups.gametest.ModMenuClientGameTest"
 		]
 	},
 	"depends": {

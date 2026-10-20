@@ -1,128 +1,84 @@
 package dev.steelaspect.cytrabackups.client;
 
+import dev.steelaspect.alloyui.AlloyScreen;
+import dev.steelaspect.alloyui.UiContext;
+import dev.steelaspect.alloyui.render.Draw;
+import dev.steelaspect.alloyui.widget.Button;
+import dev.steelaspect.alloyui.widget.Column;
+import dev.steelaspect.alloyui.widget.Container;
+import dev.steelaspect.alloyui.widget.FlowRow;
+import dev.steelaspect.alloyui.widget.Label;
+import dev.steelaspect.alloyui.widget.ScrollPanel;
+import dev.steelaspect.alloyui.widget.Tabs;
+import dev.steelaspect.alloyui.widget.TextField;
+import dev.steelaspect.alloyui.widget.Widget;
 import dev.steelaspect.cytrabackups.core.Formatting;
 import dev.steelaspect.cytrabackups.net.BackupListPayload;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
-import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.ObjectSelectionList;
-import net.minecraft.client.gui.components.StringWidget;
-import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.components.tabs.Tab;
-import net.minecraft.client.gui.components.tabs.TabManager;
-import net.minecraft.client.gui.components.tabs.TabNavigationBar;
-import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
-import net.minecraft.client.gui.layouts.LinearLayout;
-import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.FormattedCharSequence;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Main CytraBackups screen. Every button runs the matching /cbackup command on the server (same permissions and
- * behaviour as typing it); the server's replies appear in the output panel and confirmations open a dialog.
+ * Main Alloy Backups screen, in the Nocturne look of Alloy UI. Every button runs the matching /cbackup command on the
+ * server (same permissions and behaviour as typing it); the server's replies appear in the output panel and
+ * confirmations open a dialog.
  */
-public final class BackupScreen extends Screen {
-	private static final int BUTTON_W = 98;
-	private static final int ROW_H = 24;
-	private static final int SMALL_W = 74;
-
+public final class BackupScreen extends AlloyScreen {
 	// remembered while the game runs, so dialogs and reopening keep the place
 	private static int lastTab;
 	private static int selectedId = -1;
 
-	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this);
-	private final TabManager tabManager = new TabManager(this::addRenderableWidget, this::removeWidget);
-	private final LogPanel log = new LogPanel(this::suggest);
-	private final List<Runnable> refreshers = new ArrayList<>();
-	private TabNavigationBar tabBar;
-	private BackupsTab backupsTab;
+	private final BackupFrame frame;
+	private final Widget[] pages;
+	private final BackupsPage backups;
 	private long seenVersion = -1;
 	private int ticks;
-	private int logTop;
 
-	public BackupScreen() {
-		super(Component.translatable("cytrabackups.gui.title"));
+	/** {@code parent}: where Done goes back to, Mod Menu's list or null (back to the game). */
+	public BackupScreen(@Nullable Screen parent) {
+		super(Component.translatable("cytrabackups.gui.title"), parent);
+		backups = new BackupsPage();
+		pages = new Widget[] {backups, restorePage(), toolsPage()};
+		frame = new BackupFrame(title, BackupScreen::status);
+		frame.tabs(new Tabs(() -> List.of(Component.translatable("cytrabackups.gui.tab.backups"), Component.translatable("cytrabackups.gui.tab.restore"),
+			Component.translatable("cytrabackups.gui.tab.tools")), () -> lastTab, this::selectTab));
+		frame.bottom(new LogPanel(this::suggest));
+		frame.button(button("cytrabackups.gui.settings", "cytrabackups.gui.settings.tooltip", () -> minecraft.setScreen(new SettingsScreen(this)),
+			() -> can(BackupListPayload.CAN_ADMIN)));
+		frame.button(button("cytrabackups.gui.refresh", "cytrabackups.gui.refresh.tooltip", ClientState::requestList, () -> true));
+		frame.button(new Button(CommonComponents.GUI_DONE, this::onClose));
+		lastTab = Math.max(0, Math.min(2, lastTab));
+		frame.body(pages[lastTab]);
+		setRoot(frame);
 	}
 
-	/** The text, cut with "..." when wider than {@code maxWidth}. */
-	static FormattedCharSequence clip(Font font, Component text, int maxWidth) {
-		return font.width(text) <= maxWidth ? text.getVisualOrderText() : StringWidget.clipText(text, font, Math.max(maxWidth, font.width(CommonComponents.ELLIPSIS)));
+	private void selectTab(int i) {
+		lastTab = i;
+		frame.body(pages[i]);
+	}
+
+	private static Component status() {
+		BackupListPayload list = ClientState.list;
+		if (list == null) return Component.empty();
+		return Component.literal(list.jobProgress() >= 0 ? list.status() + ": " + list.jobPhase() + " " + Formatting.percent(list.jobProgress()) : list.status());
 	}
 
 	private static boolean can(int flag) {
 		return ClientState.can(flag);
 	}
 
-	private Button button(String key, String tooltipKey, int width, Runnable action, BooleanSupplier active) {
-		Button b = Button.builder(Component.translatable(key), btn -> action.run()).width(width)
-			.tooltip(Tooltip.create(Component.translatable(tooltipKey))).build();
-		refreshers.add(() -> b.active = active.getAsBoolean());
+	static Button button(String key, String tooltipKey, Runnable action, BooleanSupplier active) {
+		return button(new Button(Component.translatable(key), action), tooltipKey, active);
+	}
+
+	static Button button(Button b, String tooltipKey, BooleanSupplier active) {
+		b.tooltip(Component.translatable(tooltipKey));
+		b.enabledWhen(active);
 		return b;
-	}
-
-	private static StringWidget label(String key) {
-		return new StringWidget(Component.translatable(key), Minecraft.getInstance().font);
-	}
-
-	@Override
-	protected void init() {
-		refreshers.clear();
-		backupsTab = new BackupsTab();
-		tabBar = TabNavigationBar.builder(tabManager, width).addTabs(backupsTab, new RestoreTab(), new ToolsTab()).build();
-		addRenderableWidget(tabBar);
-		LinearLayout footer = layout.addToFooter(LinearLayout.horizontal().spacing(8));
-		footer.addChild(button("cytrabackups.gui.settings", "cytrabackups.gui.settings.tooltip", BUTTON_W,
-			() -> minecraft.setScreen(new SettingsScreen(this)), () -> can(BackupListPayload.CAN_ADMIN)));
-		footer.addChild(button("cytrabackups.gui.refresh", "cytrabackups.gui.refresh.tooltip", BUTTON_W, ClientState::requestList, () -> true));
-		footer.addChild(Button.builder(CommonComponents.GUI_DONE, b -> onClose()).width(BUTTON_W).build());
-		layout.visitWidgets(this::addRenderableWidget);
-		tabBar.selectTab(Math.min(lastTab, 2), false);
-		repositionElements();
-		refresh();
-	}
-
-	@Override
-	protected void repositionElements() {
-		if (tabBar == null) return;
-		tabBar.setWidth(width);
-		tabBar.arrangeElements();
-		int top = tabBar.getRectangle().bottom();
-		layout.setHeaderHeight(top);
-		layout.arrangeElements();
-		int logH = Math.max(36, Math.min(100, height / 5));
-		logTop = height - layout.getFooterHeight() - logH - 6;
-		tabManager.setTabArea(new ScreenRectangle(0, top, width, logTop - 14 - top));
-		log.setBounds(10, logTop, width - 20, logH);
-	}
-
-	@Override
-	public void removed() {
-		Tab current = tabManager.getCurrentTab();
-		if (current != null && tabBar != null) lastTab = Math.max(0, tabBar.getTabs().indexOf(current));
-	}
-
-	private void refresh() {
-		if (backupsTab != null) backupsTab.list.refresh();
-		refreshSelection();
-	}
-
-	private void refreshSelection() {
-		for (Runnable r : refreshers) r.run();
-		if (backupsTab != null) backupsTab.update();
 	}
 
 	@Override
@@ -130,32 +86,8 @@ public final class BackupScreen extends Screen {
 		if (++ticks % 40 == 0) ClientState.requestList();
 		if (seenVersion != ClientState.version) {
 			seenVersion = ClientState.version;
-			refresh();
+			backups.refresh();
 		}
-	}
-
-	@Override
-	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (log.contains(event.x(), event.y())) return log.mouseClicked(font, event.x(), event.y());
-		return super.mouseClicked(event, doubleClick);
-	}
-
-	@Override
-	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-		return log.mouseScrolled(x, y, scrollY) || super.mouseScrolled(x, y, scrollX, scrollY);
-	}
-
-	@Override
-	public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-		super.render(g, mouseX, mouseY, partialTick);
-		g.blit(RenderPipelines.GUI_TEXTURED, minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR, 0,
-			height - layout.getFooterHeight() - 2, 0, 0, width, 2, 32, 2);
-		BackupListPayload list = ClientState.list;
-		if (list != null) {
-			String status = list.jobProgress() >= 0 ? list.status() + ": " + list.jobPhase() + " " + Formatting.percent(list.jobProgress()) : list.status();
-			g.drawString(font, clip(font, Component.literal(status), width - 20), 10, logTop - 11, 0xFFA0A0A0);
-		}
-		log.render(g, font, mouseX, mouseY);
 	}
 
 	@Override
@@ -163,7 +95,14 @@ public final class BackupScreen extends Screen {
 		return false;
 	}
 
-	private static BackupListPayload.Entry selected() {
+	/** For tests: the centre of the widget labelled {@code label} (a button, or "#id" for a backup row) in GUI units, or null. */
+	public double @Nullable [] pointForTest(String label) {
+		Widget w = Dialogs.find(root(), label);
+		if (w == null) return null;
+		return new double[] {(w.x() + w.w() / 2) * uiScale(), (w.y() + w.h() / 2) * uiScale()};
+	}
+
+	private static BackupListPayload.@Nullable Entry selected() {
 		BackupListPayload list = ClientState.list;
 		if (list == null) return null;
 		for (BackupListPayload.Entry e : list.entries()) if (e.id() == selectedId) return e;
@@ -187,346 +126,272 @@ public final class BackupScreen extends Screen {
 		BackupListPayload.Entry e = selected();
 		if (e == null) return;
 		int prev = previousId();
-		minecraft.setScreen(new FormScreen(this, Component.translatable("cytrabackups.gui.compare.title", e.id()),
-			List.of(new FormScreen.Field("cytrabackups.gui.compare.field", prev > 0 ? String.valueOf(prev) : "", 10)), values -> {
+		Dialogs.form(Component.translatable("cytrabackups.gui.compare.title", e.id()), Component.empty(),
+			List.of(new Dialogs.Field("cytrabackups.gui.compare.field", prev > 0 ? String.valueOf(prev) : "", 10)), values -> {
 				try {
 					int other = Integer.parseInt(values.getFirst().trim());
 					ClientState.run("diff " + Math.min(other, e.id()) + " " + Math.max(other, e.id()));
 				} catch (NumberFormatException ex) {
 					ClientState.log(Component.translatable("cytrabackups.gui.compare.invalid"), true);
 				}
-			}));
+			});
 	}
 
 	private void editComment() {
 		BackupListPayload.Entry e = selected();
 		if (e == null) return;
-		minecraft.setScreen(new FormScreen(this, Component.translatable("cytrabackups.gui.comment.title", e.id()),
-			List.of(new FormScreen.Field("cytrabackups.gui.comment.field", e.comment(), 200)), values -> {
+		Dialogs.form(Component.translatable("cytrabackups.gui.comment.title", e.id()), Component.empty(),
+			List.of(new Dialogs.Field("cytrabackups.gui.comment.field", e.comment(), 200)), values -> {
 				String c = values.getFirst().trim();
 				ClientState.run(c.isEmpty() ? "comment " + e.id() : "comment " + e.id() + " " + c);
-			}));
+			});
 	}
 
 	private void confirmPrune() {
-		minecraft.setScreen(new ConfirmScreen(yes -> {
-			minecraft.setScreen(this);
-			if (yes) ClientState.run("prune");
-		}, Component.translatable("cytrabackups.gui.prune.title"), Component.translatable("cytrabackups.gui.prune.message")));
+		Dialogs.confirm(Component.translatable("cytrabackups.gui.prune.title"), Component.translatable("cytrabackups.gui.prune.message"),
+			Component.translatable("cytrabackups.gui.prune"), true, () -> ClientState.run("prune"));
 	}
 
 	/** "Suggest command" links (e.g. [Comment] in the info output) open an editable command box. */
 	private void suggest(String command) {
 		String cmd = command.startsWith("/") ? command.substring(1) : command;
-		minecraft.setScreen(new FormScreen(this, Component.translatable("cytrabackups.gui.command.title"),
-			List.of(new FormScreen.Field("cytrabackups.gui.command.field", cmd, 512)), values -> ClientState.runRaw(values.getFirst())));
+		Dialogs.form(Component.translatable("cytrabackups.gui.command.title"), Component.empty(),
+			List.of(new Dialogs.Field("cytrabackups.gui.command.field", cmd, 512)), values -> ClientState.runRaw(values.getFirst()));
 	}
 
-	/** A tab made of absolutely positioned widgets. */
-	private abstract static class WidgetTab implements Tab {
-		private final Component title;
-		protected final List<AbstractWidget> widgets = new ArrayList<>();
-
-		WidgetTab(String key) {
-			title = Component.translatable(key);
-		}
-
-		<T extends AbstractWidget> T add(T widget) {
-			widgets.add(widget);
-			return widget;
-		}
-
-		@Override
-		public Component getTabTitle() {
-			return title;
-		}
-
-		@Override
-		public Component getTabExtraNarration() {
-			return Component.empty();
-		}
-
-		@Override
-		public void visitChildren(Consumer<AbstractWidget> consumer) {
-			widgets.forEach(consumer);
-		}
+	private static ScrollPanel rows(Widget... rows) {
+		Column c = new Column(2);
+		for (Widget r : rows) c.add(r);
+		return new ScrollPanel(c);
 	}
 
-	/** Rows of a label and buttons, centred in the tab area. */
-	private abstract class RowsTab extends WidgetTab {
-		private final List<List<AbstractWidget>> rows = new ArrayList<>();
-
-		RowsTab(String key) {
-			super(key);
-		}
-
-		void row(String labelKey, String tooltipKey, AbstractWidget... controls) {
-			StringWidget label = add(label(labelKey));
-			label.setTooltip(Tooltip.create(Component.translatable(tooltipKey)));
-			List<AbstractWidget> row = new ArrayList<>();
-			row.add(label);
-			for (AbstractWidget c : controls) row.add(add(c));
-			rows.add(row);
-		}
-
-		@Override
-		public void doLayout(ScreenRectangle area) {
-			int controlsW = 0, labelW = 0;
-			for (List<AbstractWidget> row : rows) {
-				labelW = Math.max(labelW, font.width(row.getFirst().getMessage()));
-				int w = 0;
-				for (AbstractWidget c : row.subList(1, row.size())) w += c.getWidth() + 4;
-				controlsW = Math.max(controlsW, w - 4);
-			}
-			int total = Math.min(area.width() - 20, labelW + 12 + controlsW);
-			int x = area.left() + (area.width() - total) / 2;
-			int rowH = Math.max(22, Math.min(ROW_H, (area.height() - 4) / rows.size()));
-			int y = area.top() + Math.max(2, Math.min(8, (area.height() - rows.size() * rowH) / 3));
-			for (List<AbstractWidget> row : rows) {
-				StringWidget label = (StringWidget) row.getFirst();
-				label.setMaxWidth(Math.max(40, total - controlsW - 12));
-				label.setPosition(x, y + 6);
-				int cx = x + total - controlsW;
-				for (AbstractWidget c : row.subList(1, row.size())) {
-					c.setPosition(cx, y);
-					cx += c.getWidth() + 4;
-				}
-				y += rowH;
-			}
-		}
+	private static Component tr(String key) {
+		return Component.translatable(key);
 	}
 
-	private final class RestoreTab extends RowsTab {
-		RestoreTab() {
-			super("cytrabackups.gui.tab.restore");
-			row("cytrabackups.gui.restore.queued", "cytrabackups.gui.restore.queued.tooltip",
-				button("cytrabackups.gui.show", "cytrabackups.gui.restore.show.tooltip", SMALL_W, () -> ClientState.run("pending"), () -> can(BackupListPayload.CAN_RESTORE)),
-				button("cytrabackups.gui.cancel", "cytrabackups.gui.restore.cancel.tooltip", SMALL_W, () -> ClientState.run("pending cancel"), () -> can(BackupListPayload.CAN_RESTORE)),
-				button("cytrabackups.gui.apply", "cytrabackups.gui.restore.apply.tooltip", SMALL_W, () -> ClientState.run("pending apply"), () -> can(BackupListPayload.CAN_RESTORE)));
-			row("cytrabackups.gui.restore.undo", "cytrabackups.gui.restore.undo.tooltip",
-				button("cytrabackups.gui.undo", "cytrabackups.gui.restore.undo.button", SMALL_W, () -> ClientState.run("rollback"), () -> can(BackupListPayload.CAN_RESTORE)));
-			row("cytrabackups.gui.restore.job", "cytrabackups.gui.restore.job.tooltip",
-				button("cytrabackups.gui.stop", "cytrabackups.gui.restore.stop.tooltip", SMALL_W, () -> ClientState.run("cancel"), () -> can(BackupListPayload.CAN_CANCEL)));
-		}
+	private Widget restorePage() {
+		return rows(
+			new ActionRow(tr("cytrabackups.gui.restore.queued"), tr("cytrabackups.gui.restore.queued.tooltip"),
+				button("cytrabackups.gui.show", "cytrabackups.gui.restore.show.tooltip", () -> ClientState.run("pending"), () -> can(BackupListPayload.CAN_RESTORE)),
+				button("cytrabackups.gui.cancel", "cytrabackups.gui.restore.cancel.tooltip", () -> ClientState.run("pending cancel"), () -> can(BackupListPayload.CAN_RESTORE)),
+				button("cytrabackups.gui.apply", "cytrabackups.gui.restore.apply.tooltip", () -> ClientState.run("pending apply"), () -> can(BackupListPayload.CAN_RESTORE))),
+			new ActionRow(tr("cytrabackups.gui.restore.undo"), tr("cytrabackups.gui.restore.undo.tooltip"),
+				button("cytrabackups.gui.undo", "cytrabackups.gui.restore.undo.button", () -> ClientState.run("rollback"), () -> can(BackupListPayload.CAN_RESTORE))),
+			new ActionRow(tr("cytrabackups.gui.restore.job"), tr("cytrabackups.gui.restore.job.tooltip"),
+				button("cytrabackups.gui.stop", "cytrabackups.gui.restore.stop.tooltip", () -> ClientState.run("cancel"), () -> can(BackupListPayload.CAN_CANCEL))));
 	}
 
-	private final class ToolsTab extends RowsTab {
-		private final EditBox importPath = new EditBox(font, 0, 0, 120, 20, Component.translatable("cytrabackups.gui.import.path"));
-		private final EditBox importComment = new EditBox(font, 0, 0, 80, 20, Component.translatable("cytrabackups.gui.import.comment"));
-
-		ToolsTab() {
-			super("cytrabackups.gui.tab.tools");
-			row("cytrabackups.gui.tools.status", "cytrabackups.gui.tools.status.tooltip",
-				button("cytrabackups.gui.show", "cytrabackups.gui.tools.show.tooltip", SMALL_W, () -> ClientState.run("status"), () -> can(BackupListPayload.CAN_LIST)),
-				button("cytrabackups.gui.stop", "cytrabackups.gui.restore.stop.tooltip", SMALL_W, () -> ClientState.run("cancel"), () -> can(BackupListPayload.CAN_CANCEL)),
-				button("cytrabackups.gui.help", "cytrabackups.gui.tools.help.tooltip", SMALL_W, () -> ClientState.run("help"), () -> true));
-			row("cytrabackups.gui.tools.prune", "cytrabackups.gui.tools.prune.tooltip",
-				button("cytrabackups.gui.preview", "cytrabackups.gui.tools.preview.tooltip", SMALL_W, () -> ClientState.run("prune dryrun"), () -> can(BackupListPayload.CAN_PRUNE)),
-				button("cytrabackups.gui.prune", "cytrabackups.gui.tools.prune_now.tooltip", SMALL_W, BackupScreen.this::confirmPrune, () -> can(BackupListPayload.CAN_PRUNE)),
-				button("cytrabackups.gui.free", "cytrabackups.gui.tools.free.tooltip", SMALL_W, () -> ClientState.run("gc"), () -> can(BackupListPayload.CAN_PRUNE)));
-			importPath.setMaxLength(512);
-			importPath.setHint(Component.translatable("cytrabackups.gui.import.path").withStyle(ChatFormatting.DARK_GRAY));
-			importComment.setMaxLength(200);
-			importComment.setHint(Component.translatable("cytrabackups.gui.import.comment").withStyle(ChatFormatting.DARK_GRAY));
-			row("cytrabackups.gui.tools.import", "cytrabackups.gui.tools.import.tooltip", importPath, importComment,
-				button("cytrabackups.gui.import", "cytrabackups.gui.tools.import.button", SMALL_W, this::runImport, () -> can(BackupListPayload.CAN_ADMIN)));
-			row("cytrabackups.gui.tools.offsite", "cytrabackups.gui.tools.offsite.tooltip",
-				button("cytrabackups.gui.show", "cytrabackups.gui.tools.offsite_status.tooltip", SMALL_W, () -> ClientState.run("offsite status"), () -> can(BackupListPayload.CAN_ADMIN)),
-				button("cytrabackups.gui.upload", "cytrabackups.gui.tools.upload.tooltip", SMALL_W, () -> ClientState.run("offsite sync"), () -> can(BackupListPayload.CAN_ADMIN)),
-				button("cytrabackups.gui.list", "cytrabackups.gui.tools.offsite_list.tooltip", SMALL_W, () -> ClientState.run("offsite list"), () -> can(BackupListPayload.CAN_ADMIN)));
-			row("cytrabackups.gui.tools.config", "cytrabackups.gui.tools.config.tooltip",
-				button("cytrabackups.gui.reload", "cytrabackups.gui.tools.reload.tooltip", SMALL_W, () -> ClientState.run("reload"), () -> can(BackupListPayload.CAN_ADMIN)));
-		}
-
-		private void runImport() {
-			String path = importPath.getValue().trim();
+	private Widget toolsPage() {
+		TextField importPath = new TextField(() -> "", v -> {}).live().maxLength(512).placeholder(tr("cytrabackups.gui.import.path"));
+		TextField importComment = new TextField(() -> "", v -> {}).live().maxLength(200).placeholder(tr("cytrabackups.gui.import.comment"));
+		Runnable runImport = () -> {
+			String path = importPath.text().trim();
 			if (path.isEmpty()) return;
 			String quoted = path.contains(" ") ? "\"" + path + "\"" : path;
-			String comment = importComment.getValue().trim();
+			String comment = importComment.text().trim();
 			ClientState.run("import " + quoted + (comment.isEmpty() ? "" : " " + comment));
-		}
-
-		@Override
-		public void doLayout(ScreenRectangle area) {
-			int boxes = Math.max(100, Math.min(220, area.width() - 20 - 110 - SMALL_W - 4));
-			importPath.setWidth(boxes * 3 / 5);
-			importComment.setWidth(boxes - boxes * 3 / 5 - 4);
-			super.doLayout(area);
-		}
+		};
+		return rows(
+			new ActionRow(tr("cytrabackups.gui.tools.status"), tr("cytrabackups.gui.tools.status.tooltip"),
+				button("cytrabackups.gui.show", "cytrabackups.gui.tools.show.tooltip", () -> ClientState.run("status"), () -> can(BackupListPayload.CAN_LIST)),
+				button("cytrabackups.gui.stop", "cytrabackups.gui.restore.stop.tooltip", () -> ClientState.run("cancel"), () -> can(BackupListPayload.CAN_CANCEL)),
+				button("cytrabackups.gui.help", "cytrabackups.gui.tools.help.tooltip", () -> ClientState.run("help"), () -> true)),
+			new ActionRow(tr("cytrabackups.gui.tools.prune"), tr("cytrabackups.gui.tools.prune.tooltip"),
+				button("cytrabackups.gui.preview", "cytrabackups.gui.tools.preview.tooltip", () -> ClientState.run("prune dryrun"), () -> can(BackupListPayload.CAN_PRUNE)),
+				button("cytrabackups.gui.prune", "cytrabackups.gui.tools.prune_now.tooltip", this::confirmPrune, () -> can(BackupListPayload.CAN_PRUNE)),
+				button("cytrabackups.gui.free", "cytrabackups.gui.tools.free.tooltip", () -> ClientState.run("gc"), () -> can(BackupListPayload.CAN_PRUNE))),
+			new ActionRow(tr("cytrabackups.gui.tools.import"), tr("cytrabackups.gui.tools.import.tooltip"), importPath, importComment,
+				button("cytrabackups.gui.import", "cytrabackups.gui.tools.import.button", runImport, () -> can(BackupListPayload.CAN_ADMIN))),
+			new ActionRow(tr("cytrabackups.gui.tools.offsite"), tr("cytrabackups.gui.tools.offsite.tooltip"),
+				button("cytrabackups.gui.show", "cytrabackups.gui.tools.offsite_status.tooltip", () -> ClientState.run("offsite status"), () -> can(BackupListPayload.CAN_ADMIN)),
+				button("cytrabackups.gui.upload", "cytrabackups.gui.tools.upload.tooltip", () -> ClientState.run("offsite sync"), () -> can(BackupListPayload.CAN_ADMIN)),
+				button("cytrabackups.gui.list", "cytrabackups.gui.tools.offsite_list.tooltip", () -> ClientState.run("offsite list"), () -> can(BackupListPayload.CAN_ADMIN))),
+			new ActionRow(tr("cytrabackups.gui.tools.config"), tr("cytrabackups.gui.tools.config.tooltip"),
+				button("cytrabackups.gui.reload", "cytrabackups.gui.tools.reload.tooltip", () -> ClientState.run("reload"), () -> can(BackupListPayload.CAN_ADMIN))));
 	}
 
-	private final class BackupsTab extends WidgetTab {
-		private final BackupList list = add(new BackupList());
-		private final EditBox comment = add(new EditBox(font, 0, 0, 100, 20, Component.translatable("cytrabackups.gui.create.comment")));
-		private final Button create = add(button("cytrabackups.gui.create", "cytrabackups.gui.create.tooltip", 100, this::create, () -> can(BackupListPayload.CAN_CREATE)));
-		private final StringWidget heading = add(new StringWidget(Component.empty(), font));
-		private final StringWidget details = add(new StringWidget(Component.empty(), font));
-		private final StringWidget note = add(new StringWidget(Component.empty(), font));
-		private final List<Button> actions = new ArrayList<>();
-		private Button restore, pin;
+	/**
+	 * The backup list with a "create" line under it, and the selected backup's details and actions beside it (under it
+	 * on narrow windows).
+	 */
+	private final class BackupsPage extends Container {
+		private static final float NARROW = 340;
 
-		BackupsTab() {
-			super("cytrabackups.gui.tab.backups");
-			comment.setMaxLength(200);
-			comment.setHint(Component.translatable("cytrabackups.gui.create.comment").withStyle(ChatFormatting.DARK_GRAY));
+		private final Column listColumn = new Column(2);
+		private final ScrollPanel list = add(new ScrollPanel(listColumn));
+		private final TextField comment = add(new TextField(() -> "", v -> {}).live().maxLength(200).placeholder(tr("cytrabackups.gui.create.comment")));
+		private final Button create = add(button(new Button(tr("cytrabackups.gui.create"), this::create).style(Button.Style.PRIMARY),
+			"cytrabackups.gui.create.tooltip", () -> can(BackupListPayload.CAN_CREATE)));
+		private final Label heading = add(new Label(() -> {
+			BackupListPayload.Entry e = selected();
+			return e == null ? tr("cytrabackups.gui.none_selected") : Component.translatable("cytrabackups.gui.selected", e.id());
+		}).heading());
+		private final Label details = add(new Label(() -> {
+			BackupListPayload.Entry e = selected();
+			if (e == null) return Component.empty();
+			String note = e.comment().isBlank() ? e.trigger() : e.comment();
+			return Component.literal(Formatting.dateTimeShort(e.createdAt(), ZoneId.systemDefault()) + ", " + Formatting.bytes(e.totalSize()) + "\n" + note);
+		}).color("textMuted"));
+		private final FlowRow actions = new FlowRow(BackupFrame.GAP);
+		private final ScrollPanel actionsScroll = add(new ScrollPanel(actions)); // scrolls on short windows instead of overlapping the log
+		private boolean narrow;
+
+		BackupsPage() {
+			comment.onEnter(this::create);
 			BooleanSupplier sel = () -> selected() != null;
 			action("cytrabackups.gui.info", "cytrabackups.gui.info.tooltip", () -> runOnSelected("info"), () -> sel.getAsBoolean() && can(BackupListPayload.CAN_LIST));
 			action("cytrabackups.gui.compare", "cytrabackups.gui.compare.tooltip", BackupScreen.this::compare, () -> sel.getAsBoolean() && can(BackupListPayload.CAN_LIST));
-			restore = action("cytrabackups.gui.restore", "cytrabackups.gui.restore.tooltip", () -> runOnSelected("restore"),
+			Button restore = action("cytrabackups.gui.restore", "cytrabackups.gui.restore.tooltip", () -> runOnSelected("restore"),
 				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_RESTORE));
+			restore.tooltip(() -> {
+				BackupListPayload.Entry e = selected();
+				return List.of(tr(e != null && e.partial() ? "cytrabackups.gui.restore.area_tooltip" : "cytrabackups.gui.restore.tooltip"));
+			});
 			action("cytrabackups.gui.area", "cytrabackups.gui.area.tooltip", () -> minecraft.setScreen(new ChunkSelectorScreen(BackupScreen.this, selectedId)),
 				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_RESTORE));
 			action("cytrabackups.gui.verify", "cytrabackups.gui.verify.tooltip", () -> runOnSelected("verify"), () -> sel.getAsBoolean() && can(BackupListPayload.CAN_VERIFY));
 			action("cytrabackups.gui.export", "cytrabackups.gui.export.tooltip", () -> runOnSelected("export"),
 				() -> sel.getAsBoolean() && !selected().partial() && can(BackupListPayload.CAN_EXPORT));
-			pin = action("cytrabackups.gui.pin", "cytrabackups.gui.pin.tooltip", () -> runOnSelected(selected().pinned() ? "unpin" : "pin"),
-				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_PIN));
+			Button pin = new Button(() -> {
+				BackupListPayload.Entry e = selected();
+				return tr(e != null && e.pinned() ? "cytrabackups.gui.unpin" : "cytrabackups.gui.pin");
+			}, () -> runOnSelected(selected().pinned() ? "unpin" : "pin"));
+			actions.add(button(pin, "cytrabackups.gui.pin.tooltip", () -> sel.getAsBoolean() && can(BackupListPayload.CAN_PIN)));
 			action("cytrabackups.gui.comment", "cytrabackups.gui.comment.tooltip", BackupScreen.this::editComment, () -> sel.getAsBoolean() && can(BackupListPayload.CAN_COMMENT));
 			action("cytrabackups.gui.delete", "cytrabackups.gui.delete.tooltip", () -> runOnSelected("delete"),
 				() -> sel.getAsBoolean() && !selected().pinned() && can(BackupListPayload.CAN_DELETE));
+			refresh();
 		}
 
 		private Button action(String key, String tooltipKey, Runnable run, BooleanSupplier active) {
-			Button b = add(button(key, tooltipKey, 73, run, active));
-			actions.add(b);
-			return b;
+			return actions.add(button(key, tooltipKey, run, active));
 		}
 
 		private void create() {
-			String c = comment.getValue().trim();
+			String c = comment.text().trim();
 			ClientState.run(c.isEmpty() ? "create" : "create " + c);
-			comment.setValue("");
-		}
-
-		/** Height of the selected-backup column: text lines, then the action buttons in rows. */
-		private int columnHeight(int buttonColumns, int textLines) {
-			return 6 + textLines * 12 + 4 + (actions.size() + buttonColumns - 1) / buttonColumns * ROW_H - 4;
-		}
-
-		@Override
-		public void doLayout(ScreenRectangle area) {
-			// On short screens the buttons go three to a row, then only the heading is shown.
-			int buttonColumns = 2, textLines = 3;
-			if (columnHeight(buttonColumns, textLines) > area.height()) buttonColumns = 3;
-			if (columnHeight(buttonColumns, textLines) > area.height()) textLines = 1;
-			int buttonW = buttonColumns == 2 ? 73 : 60;
-			int columnW = buttonColumns * buttonW + (buttonColumns - 1) * 4;
-			int columnX = area.right() - 10 - columnW;
-			int listW = columnX - 10 - area.left() - 10;
-			list.updateSizeAndPosition(listW, area.height() - 34, area.left() + 10, area.top() + 4);
-			int rowY = area.bottom() - 24;
-			comment.setPosition(area.left() + 10, rowY);
-			comment.setWidth(Math.max(60, listW - create.getWidth() - 4));
-			create.setPosition(area.left() + 10 + comment.getWidth() + 4, rowY);
-			int y = area.top() + 6;
-			List<StringWidget> texts = List.of(heading, details, note);
-			for (int i = 0; i < texts.size(); i++) {
-				StringWidget w = texts.get(i);
-				w.visible = i < textLines;
-				w.setMaxWidth(columnW);
-				w.setPosition(columnX, y);
-				if (w.visible) y += 12;
-			}
-			y += 4;
-			for (int i = 0; i < actions.size(); i++) {
-				Button b = actions.get(i);
-				b.setWidth(buttonW);
-				b.setPosition(columnX + (i % buttonColumns) * (buttonW + 4), y + (i / buttonColumns) * ROW_H);
-			}
-		}
-
-		void update() {
-			BackupListPayload.Entry e = selected();
-			if (e == null) {
-				heading.setMessage(Component.translatable("cytrabackups.gui.none_selected"));
-				details.setMessage(Component.empty());
-				note.setMessage(Component.empty());
-			} else {
-				heading.setMessage(Component.translatable("cytrabackups.gui.selected", e.id()));
-				details.setMessage(Component.literal(Formatting.dateTimeShort(e.createdAt(), ZoneId.systemDefault()) + ", "
-					+ Formatting.bytes(e.totalSize())).withStyle(ChatFormatting.GRAY));
-				note.setMessage(e.comment().isBlank() ? Component.literal(e.trigger()).withStyle(ChatFormatting.GRAY)
-					: Component.literal(e.comment()).withStyle(ChatFormatting.GRAY));
-			}
-			pin.setMessage(Component.translatable(e != null && e.pinned() ? "cytrabackups.gui.unpin" : "cytrabackups.gui.pin"));
-			restore.setTooltip(Tooltip.create(Component.translatable(e != null && e.partial() ? "cytrabackups.gui.restore.area_tooltip" : "cytrabackups.gui.restore.tooltip")));
-		}
-	}
-
-	/** Backups, newest first, in the style of the world selection list. */
-	private final class BackupList extends ObjectSelectionList<BackupList.Row> {
-		BackupList() {
-			super(BackupScreen.this.minecraft, 200, 100, 0, 24);
+			comment.setText("");
 		}
 
 		void refresh() {
+			listColumn.clear();
 			BackupListPayload payload = ClientState.list;
-			double scroll = scrollAmount();
-			List<Row> rows = new ArrayList<>();
-			Row sel = null;
 			if (payload != null && payload.can(BackupListPayload.CAN_LIST)) {
-				for (BackupListPayload.Entry e : payload.entries()) {
-					Row r = new Row(e);
-					if (e.id() == selectedId) sel = r;
-					rows.add(r);
-				}
+				for (BackupListPayload.Entry e : payload.entries()) listColumn.add(new BackupRow(e));
 			}
-			replaceEntries(rows);
-			setSelected(sel);
-			setScrollAmount(scroll);
 		}
 
 		@Override
-		public int getRowWidth() {
-			return width - 12;
+		public float measure(float width) {
+			return 0;
 		}
 
 		@Override
-		protected int scrollBarX() {
-			return getRight() - 6;
+		protected void layout() {
+			narrow = w < NARROW;
+			float createH = 16;
+			if (narrow) {
+				// list, create line, then the heading and as many action rows as fit (the rest scroll)
+				float ah = actions.measure(w);
+				float listH = Math.max(24, Math.min(h - createH - 3 * BackupFrame.GAP - 12 - 16, h - createH - 3 * BackupFrame.GAP - 12 - ah));
+				list.setBounds(x, y, w, listH);
+				float cy = y + listH + BackupFrame.GAP;
+				layoutCreate(x, cy, w);
+				float top = cy + createH + BackupFrame.GAP * 2;
+				heading.setBounds(x, top, w, 10);
+				details.setBounds(-10000, -10000, 0, 0);
+				actionsScroll.setBounds(x, top + 12, w, Math.max(16, y + h - top - 12));
+			} else {
+				float dw = Math.max(150, Math.min(220, w * 0.36f));
+				float dx = x + w - dw;
+				float listW = w - dw - BackupFrame.PAD;
+				list.setBounds(x, y, listW, Math.max(0, h - createH - BackupFrame.GAP));
+				layoutCreate(x, y + h - createH, listW);
+				float top = y + 2;
+				float hh = heading.measure(dw);
+				heading.setBounds(dx, top, dw, hh);
+				float dy = top + hh + 4;
+				float dh = details.measure(dw);
+				// short window: drop the date/comment lines before the buttons have to scroll
+				if (dy + dh + 8 + actions.measure(dw) > y + h) {
+					details.setBounds(-10000, -10000, 0, 0);
+				} else {
+					details.setBounds(dx, dy, dw, dh);
+					dy += dh + 8;
+				}
+				actionsScroll.setBounds(dx, dy, dw, Math.max(16, y + h - dy));
+			}
+		}
+
+		private void layoutCreate(float cx, float cy, float cw) {
+			float bw = Math.max(80, create.preferredWidth());
+			comment.setBounds(cx, cy, Math.max(40, cw - bw - BackupFrame.GAP), 16);
+			create.setBounds(cx + cw - bw, cy, bw, 16);
 		}
 
 		@Override
-		public void renderWidget(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-			super.renderWidget(g, mouseX, mouseY, partialTick);
+		protected void renderWidget(UiContext ctx) {
+			var t = ctx.theme;
+			super.renderWidget(ctx);
 			BackupListPayload payload = ClientState.list;
 			String key = payload == null ? "cytrabackups.gui.loading" : !payload.can(BackupListPayload.CAN_LIST) ? "cytrabackups.gui.no_list"
 				: payload.entries().isEmpty() ? "cytrabackups.gui.empty" : null;
-			if (key != null) g.drawCenteredString(font, Component.translatable(key), getX() + width / 2, getY() + 12, 0xFFA0A0A0);
+			if (key != null) Draw.textCentered(ctx.g, tr(key), list.x() + list.w() / 2, list.y() + 12, t.color("textMuted"));
+		}
+	}
+
+	/** One backup: "#id date" and the comment, then size and trigger in muted text. Click selects, double click shows info. */
+	private final class BackupRow extends Widget {
+		private static long lastClick;
+		private static int lastClickId = -1;
+		private final BackupListPayload.Entry backup;
+
+		BackupRow(BackupListPayload.Entry backup) {
+			this.backup = backup;
 		}
 
-		final class Row extends ObjectSelectionList.Entry<Row> {
-			private final BackupListPayload.Entry backup;
+		@Override
+		public float measure(float width) {
+			return 24;
+		}
 
-			Row(BackupListPayload.Entry backup) {
-				this.backup = backup;
-			}
+		@Override
+		public Component searchLabel() {
+			return Component.literal("#" + backup.id());
+		}
 
-			@Override
-			public Component getNarration() {
-				return Component.translatable("cytrabackups.gui.selected", backup.id());
+		@Override
+		protected void renderWidget(UiContext ctx) {
+			var t = ctx.theme;
+			boolean sel = backup.id() == selectedId;
+			if (sel) Draw.roundRect(ctx.g, x, y, w, h, t.metricF("radius"), t.color("selection"));
+			else if (hover.get() > 0) Draw.roundRect(ctx.g, x, y, w, h, t.metricF("radius"), Draw.withAlpha(t.color("text"), 0.05f * hover.get()));
+			if (sel) Draw.roundRect(ctx.g, x, y + 4, 2, h - 8, 1, t.color("accent"));
+			String date = Formatting.dateTimeShort(backup.createdAt(), ZoneId.systemDefault());
+			Component first = Component.literal("#" + backup.id() + "  " + date);
+			float fw = Draw.textWidth(first);
+			Draw.text(ctx.g, first, x + 6, y + 3, t.color("text"));
+			float cx = x + 6 + fw + 6;
+			if (backup.pinned()) {
+				cx += Draw.tag(ctx.g, tr("cytrabackups.gui.pinned"), cx, y + 2, t.color("tag"), t.color("text")) + 4;
 			}
+			if (!backup.comment().isBlank() && cx < x + w - 10) {
+				Draw.textClipped(ctx.g, Component.literal(backup.comment()), cx, y + 3, x + w - 6 - cx, t.color("textMuted"));
+			}
+			String second = Formatting.bytes(backup.totalSize()) + ", " + backup.trigger() + (backup.partial() ? " " + tr("cytrabackups.list.area").getString() : "");
+			Draw.textClipped(ctx.g, Component.literal(second), x + 6, y + 13, w - 12, t.color("textMuted"));
+		}
 
-			@Override
-			public void renderContent(GuiGraphics g, int mouseX, int mouseY, boolean hovered, float partialTick) {
-				int x = getContentX(), y = getContentY(), w = getContentWidth();
-				String date = Formatting.dateTimeShort(backup.createdAt(), ZoneId.systemDefault());
-				String first = "#" + backup.id() + (backup.pinned() ? "*" : "") + "  " + date;
-				g.drawString(font, first, x, y, 0xFFFFFFFF);
-				int cx = x + font.width(first) + 8;
-				if (!backup.comment().isBlank() && cx < x + w) g.drawString(font, clip(font, Component.literal(backup.comment()), x + w - cx), cx, y, 0xFFA0A0A0);
-				String second = Formatting.bytes(backup.totalSize()) + ", " + backup.trigger() + (backup.partial() ? " " + Component.translatable("cytrabackups.list.area").getString() : "");
-				g.drawString(font, clip(font, Component.literal(second), w), x, y + 11, 0xFFA0A0A0);
-			}
-
-			@Override
-			public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-				BackupList.this.setSelected(this);
-				selectedId = backup.id();
-				refreshSelection();
-				if (doubleClick && can(BackupListPayload.CAN_LIST)) ClientState.run("info " + backup.id());
-				return true;
-			}
+		@Override
+		public boolean mouseClicked(UiContext ctx, double mx, double my, int button) {
+			if (button != 0 || !contains(mx, my) || !ctx.inClip(mx, my)) return false;
+			long now = System.currentTimeMillis();
+			boolean doubleClick = lastClickId == backup.id() && now - lastClick < 400;
+			lastClick = now;
+			lastClickId = backup.id();
+			selectedId = backup.id();
+			if (doubleClick && can(BackupListPayload.CAN_LIST)) ClientState.run("info " + backup.id());
+			return true;
 		}
 	}
 }

@@ -2,6 +2,18 @@
 
 All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.8.0
+
+- **New look: Nocturne.** The backup menu, settings, chunk selector and all dialogs now use the Alloy theme (Alloy UI, bundled in the jar), so the theme you pick in Alloy Hub applies here too. Commands, config and saved data are unchanged, and a 1.8.0 client works with servers on 1.6.2 or newer.
+- Settings are one scrolling list with a folding section per topic, switches for on/off settings and a reset button on every changed row.
+- Confirmations from the server open as dialogs with a red confirm button. Closing one answers "no", as before.
+- Messages such as "command copied" or "settings saved" show as small notices at the top right.
+- Includes 1.7.2 (not released on its own):
+
+## 1.7.2
+
+- **Mod Menu button**: with Mod Menu installed, the config button opens the backup menu when you are in a world or on a server with Alloy Backups. Anywhere else it explains where the menu works. Done or Back returns to Mod Menu.
+
 ## 1.7.1
 
 - **Renamed to Alloy Backups**, with the new Alloy logo. The jar is now `alloy-backups-<version>.jar`. Commands

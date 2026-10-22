@@ -2,6 +2,7 @@ package dev.steelaspect.cytrabackups.gametest;
 
 import dev.steelaspect.cytrabackups.client.BackupScreen;
 import dev.steelaspect.cytrabackups.client.ChunkSelectorScreen;
+import dev.steelaspect.cytrabackups.client.GuiPreviewData;
 import dev.steelaspect.cytrabackups.core.backup.BackupMeta;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperation;
 import dev.steelaspect.cytrabackups.core.restore.PendingOperationRunner;
@@ -130,6 +131,11 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.getInput().releaseMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTicks(2);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
+			// Preview: the server builds a schematic of the selected chunks (saved in previews/ without Alloy Syncmatica)
+			ModMenuClientGameTest.click(ctx, "Preview");
+			waitUntil(ctx, "preview reply", () -> ctx.computeOnClient(mc -> GuiPreviewData.lastLog()).contains("preview ("));
+			String previewReply = ctx.computeOnClient(mc -> GuiPreviewData.lastLog());
+			LOG.info("GUI chunk selector preview: {}", previewReply);
 			ModMenuClientGameTest.click(ctx, "Restore...");
 			waitFor(ctx, "Confirm"); // the server's confirmation, shown as a dialog
 			ctx.takeScreenshot("cytrabackups-4-confirm-chunks");

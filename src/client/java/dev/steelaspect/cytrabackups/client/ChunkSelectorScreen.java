@@ -15,6 +15,7 @@ import dev.steelaspect.alloyui.widget.TextField;
 import dev.steelaspect.alloyui.widget.Widget;
 import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.mc.BackupCommands;
+import dev.steelaspect.cytrabackups.net.BackupListPayload;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
@@ -54,6 +55,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	private static final int MAX_SELECT_RADIUS = 32;
 	private static final Identifier MAP_TEXTURE = Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "chunk_selector_map");
 	private static final int MARGIN = 8;
+	private static final int PREVIEW_MAX_CHUNKS = 256; // same as the server's limit (BackupManager.PREVIEW_MAX_CHUNKS)
 
 	private final int backupId;
 	private int centerX, centerZ;
@@ -103,7 +105,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		controls = new Controls(
 			new ControlRow(options),
 			new ControlRow(List.of(x1Box, z1Box, x2Box, z2Box, button("cytrabackups.gui.area.select", "cytrabackups.gui.area.select.tooltip", this::fromBoxes))),
-			new ControlRow(List.of(new Button(CommonComponents.GUI_BACK, this::onClose), copy, restore)));
+			new ControlRow(List.of(new Button(CommonComponents.GUI_BACK, this::onClose), previewButton(), copy, restore)));
 		setRoot(controls);
 		syncBoxes();
 	}
@@ -284,6 +286,30 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	private void restore() {
 		String command = restoreCommand();
 		if (command != null) ClientState.run(command);
+	}
+
+	/** Chunks in the selection, or 0 when nothing is selected. */
+	private long selectedChunks() {
+		if (selX1 == null) return 0;
+		return (long) (Math.abs(selX2 - selX1) + 1) * (Math.abs(selZ2 - selZ1) + 1);
+	}
+
+	/** Shows the selected chunks of the backup as a Litematica schematic (shared through Alloy Syncmatica), to compare before restoring. */
+	private Button previewButton() {
+		Button b = new Button(Component.translatable("cytrabackups.gui.area.preview"), this::preview);
+		b.enabledWhen(() -> {
+			long n = selectedChunks();
+			return n > 0 && n <= PREVIEW_MAX_CHUNKS && ClientState.can(BackupListPayload.CAN_RESTORE);
+		});
+		b.tooltip(() -> List.of(selectedChunks() > PREVIEW_MAX_CHUNKS
+			? Component.translatable("cytrabackups.gui.area.preview.too_big", selectedChunks(), PREVIEW_MAX_CHUNKS)
+			: Component.translatable("cytrabackups.gui.area.preview.tooltip", backupId)));
+		return b;
+	}
+
+	private void preview() {
+		String command = restoreCommand();
+		if (command != null) ClientState.run(command.replaceFirst("^restore ", "preview "));
 	}
 
 	/** Copies the restore command, to run later from chat (e.g. once nobody is near the area, so it can be restored live). */

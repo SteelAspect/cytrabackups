@@ -2,6 +2,10 @@
 
 All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.8.1
+
+- **Preview button in the area restore screen.** It shows the selected chunks of the backup as a Litematica schematic in their place (shared through Alloy Syncmatica when the server has it), so you can compare before restoring, without typing `/cbackup preview`. Up to 256 chunks. Works with servers on 1.7.0 or newer.
+
 ## 1.8.0
 
 - **New look: Nocturne.** The backup menu, settings, chunk selector and all dialogs now use the Alloy theme (Alloy UI, bundled in the jar), so the theme you pick in Alloy Hub applies here too. Commands, config and saved data are unchanged, and a 1.8.0 client works with servers on 1.6.2 or newer.

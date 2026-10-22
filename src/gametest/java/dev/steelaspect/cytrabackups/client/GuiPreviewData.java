@@ -46,6 +46,12 @@ public final class GuiPreviewData {
 		ClientState.log(Component.literal("177 MB in 40 files, 1204 chunks. Deduplication saved 80 MB.").withStyle(ChatFormatting.GRAY), false);
 	}
 
+	/** The newest line of the GUI output log, or "" (tests wait for server replies with it). */
+	public static String lastLog() {
+		ClientState.LogLine l = ClientState.lastLog();
+		return l == null ? "" : l.text().getString();
+	}
+
 	/** Sets the main screen's tab and selected backup (they are private statics). */
 	public static void select(int tab, int id) {
 		setStatic(BackupScreen.class, "lastTab", tab);

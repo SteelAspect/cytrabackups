@@ -154,6 +154,11 @@ class MigrateIntegrationTest {
 			a.write("world/level.dat", "A-level");
 			region(a.root.resolve("world/region/r.0.0.mca"), 1);
 			a.write("world/session.lock", "lock");
+			// a big plain file (a mod's database): many pieces, downloaded in batches on import
+			byte[] big = new byte[20 * 1024 * 1024 + 123];
+			new Random(7).nextBytes(big);
+			Files.createDirectories(a.root.resolve("world/data"));
+			Files.write(a.root.resolve("world/data/big.sqlite"), big);
 			a.write("mods/a.jar", "mod-a");
 			a.write("config/x.json", "{\"a\":1}");
 			a.write(ServerMigration.BACKUP_SETTINGS, "A-settings");
@@ -175,7 +180,7 @@ class MigrateIntegrationTest {
 			BackupService.Outcome out = a.service.create(req);
 			BackupMeta exported = out.meta();
 			assertTrue(exported.serverScope());
-			assertEquals(2, out.scan().reusedFiles, "level.dat and the region file come from the world backup");
+			assertEquals(3, out.scan().reusedFiles, "level.dat, the region file and the big file come from the world backup");
 			assertTrue(a.repo.latestFull().map(m -> !m.serverScope()).orElse(false), "a server backup is never the world baseline");
 			a.sync.enqueueMissing();
 			a.sync.process(target("a/"), workers, 3, new Progress(), CancelToken.NONE);
@@ -199,6 +204,7 @@ class MigrateIntegrationTest {
 
 			assertEquals("A-level", b.read("world/level.dat"));
 			assertEquals(ContentHasher.region(a.root.resolve("world/region/r.0.0.mca")), ContentHasher.region(b.root.resolve("world/region/r.0.0.mca")));
+			assertTrue(java.util.Arrays.equals(big, Files.readAllBytes(b.root.resolve("world/data/big.sqlite"))), "the big file arrives intact");
 			assertEquals("mod-a", b.read("mods/a.jar"));
 			assertFalse(b.has("mods/b.jar"), "mods only the new server had are removed");
 			assertEquals("{\"a\":1}", b.read("config/x.json"));

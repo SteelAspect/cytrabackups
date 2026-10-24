@@ -443,13 +443,20 @@ public final class RestoreEngine {
 		return mergeRegion(mr, FileUtil.resolveSafe(world, op.path()), target);
 	}
 
+	/** Pieces fetched together: pieces only stored off-site download in parallel, at most this many in memory at once. */
+	private static final int PIECE_BATCH = 8;
+
 	private void writeFileEntry(FileEntry f, Path target) throws IOException {
 		MessageDigest md = Hash.newDigest();
+		List<BlobRef> pieces = f.pieces();
 		try (OutputStream out = new java.io.BufferedOutputStream(Files.newOutputStream(target), 1 << 16)) {
-			for (BlobRef piece : f.pieces()) {
-				byte[] data = blobs.read(piece.hash());
-				md.update(data);
-				out.write(data);
+			for (int i = 0; i < pieces.size(); i += PIECE_BATCH) {
+				List<Hash> batch = new ArrayList<>();
+				for (BlobRef piece : pieces.subList(i, Math.min(pieces.size(), i + PIECE_BATCH))) batch.add(piece.hash());
+				for (byte[] data : blobs.readAll(batch)) {
+					md.update(data);
+					out.write(data);
+				}
 			}
 		}
 		Hash h = Hash.finish(md);

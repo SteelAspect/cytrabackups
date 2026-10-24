@@ -102,7 +102,7 @@ final class SettingsScreen extends AlloyScreen {
 		return switch (e.type()) {
 			case BOOL -> Rows.toggle(name, help, () -> Boolean.parseBoolean(current(e)), v -> edit(e, String.valueOf(v)), Boolean.parseBoolean(e.value()));
 			case CHOICE -> Rows.dropdown(name, help, e::choices, Component::literal,
-				() -> e.choices().contains(current(e)) ? current(e) : e.choices().getFirst(), v -> edit(e, v), e.value());
+				() -> e.choices().contains(current(e)) ? current(e) : e.choices().get(0), v -> edit(e, v), e.value());
 			case SECRET -> new SettingRow(name, help, new SecretControl(e));
 			default -> {
 				TextField box = new TextField(() -> current(e), v -> edit(e, v)).live().maxLength(e.type() == ConfigSchema.Type.LIST ? 8192 : 1024);

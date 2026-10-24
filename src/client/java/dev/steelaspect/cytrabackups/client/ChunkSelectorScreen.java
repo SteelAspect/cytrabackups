@@ -23,19 +23,18 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
+import dev.steelaspect.alloyui.input.KeyEvent;
+import dev.steelaspect.alloyui.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
 import org.jspecify.annotations.Nullable;
@@ -53,7 +52,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	private static final int PAINT_BUDGET = 768; // chunks painted per tick
 	private static final int REPAINT_INTERVAL_TICKS = 100;
 	private static final int MAX_SELECT_RADIUS = 32;
-	private static final Identifier MAP_TEXTURE = Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "chunk_selector_map");
+	private static final ResourceLocation MAP_TEXTURE = new ResourceLocation(CytraBackups.MOD_ID, "chunk_selector_map");
 	private static final int MARGIN = 8;
 	private static final int PREVIEW_MAX_CHUNKS = 256; // same as the server's limit (BackupManager.PREVIEW_MAX_CHUNKS)
 
@@ -84,8 +83,8 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		String here = currentDimension(mc);
 		dimension = here;
 		if (ClientState.list != null) dimensions.addAll(ClientState.list.dimensions());
-		if (!dimensions.contains(here) && !here.isEmpty()) dimensions.addFirst(here);
-		if (!dimensions.contains(dimension)) dimension = dimensions.isEmpty() ? here : dimensions.getFirst();
+		if (!dimensions.contains(here) && !here.isEmpty()) dimensions.add(0, here);
+		if (!dimensions.contains(dimension)) dimension = dimensions.isEmpty() ? here : dimensions.get(0);
 
 		List<Widget> options = new ArrayList<>();
 		if (!dimensions.isEmpty()) {
@@ -131,7 +130,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	}
 
 	private static String currentDimension(Minecraft mc) {
-		return mc.level == null ? "" : mc.level.dimension().identifier().toString();
+		return mc.level == null ? "" : mc.level.dimension().location().toString();
 	}
 
 	private boolean showingMap() {
@@ -345,7 +344,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		originX = cp.x - radius;
 		originZ = cp.z - radius;
 		span = 2 * radius + 1;
-		map = new DynamicTexture(() -> "cytrabackups chunk selector map", span * SAMPLES, span * SAMPLES, true);
+		map = new DynamicTexture(span * SAMPLES, span * SAMPLES, true);
 		minecraft.getTextureManager().register(MAP_TEXTURE, map);
 		painted.clear();
 		paint(PAINT_BUDGET);
@@ -384,22 +383,23 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 				MapColor mc = MapColor.NONE;
 				int y = top;
 				// Like vanilla maps, look through blocks without a map colour (glass, barriers) for up to 16 blocks.
-				for (int i = 0; i < 16 && y >= level.getMinY(); i++, y--) {
+				for (int i = 0; i < 16 && y >= level.getMinBuildHeight(); i++, y--) {
 					pos.set(bx, y, bz);
 					BlockState state = chunk.getBlockState(pos);
 					mc = state.getMapColor(level, pos);
 					if (mc != MapColor.NONE) break;
 				}
-				int argb;
+				// 1.20.4 map colours and NativeImage pixels are both ABGR
+				int abgr;
 				if (mc == MapColor.NONE) {
-					argb = 0xFF202020;
+					abgr = 0xFF202020;
 				} else {
 					int north = level.getHeight(Heightmap.Types.WORLD_SURFACE, bx, bz - 4) - 1;
-					MapColor.Brightness b = north < level.getMinY() || mc == MapColor.WATER ? MapColor.Brightness.NORMAL
+					MapColor.Brightness b = north < level.getMinBuildHeight() || mc == MapColor.WATER ? MapColor.Brightness.NORMAL
 						: top > north ? MapColor.Brightness.HIGH : top < north ? MapColor.Brightness.LOW : MapColor.Brightness.NORMAL;
-					argb = mc.calculateARGBColor(b) | 0xFF000000;
+					abgr = mc.calculateRGBColor(b) | 0xFF000000;
 				}
-				img.setPixel(tx + sx, tz + sz, argb);
+				img.setPixelRGBA(tx + sx, tz + sz, abgr);
 			}
 		}
 	}
@@ -437,7 +437,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		if (map != null && showingMap()) {
 			int mx = left + (originX - startX) * cell, my = top + (originZ - startZ) * cell, size = span * cell, tex = span * SAMPLES;
 			g.enableScissor(left, top, right, bottom);
-			g.blit(RenderPipelines.GUI_TEXTURED, MAP_TEXTURE, mx, my, 0, 0, size, size, tex, tex, tex, tex);
+			g.blit(MAP_TEXTURE, mx, my, size, size, 0, 0, tex, tex, tex, tex);
 			g.disableScissor();
 		} else if (rows > 0) {
 			Component noMap = Component.translatable("cytrabackups.gui.area.no_map", dimension == null ? "" : dimensionName(dimension));

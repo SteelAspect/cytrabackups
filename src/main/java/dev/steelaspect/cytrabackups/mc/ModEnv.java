@@ -49,7 +49,7 @@ public final class ModEnv {
 
 	public static String minecraftVersion() {
 		try {
-			return SharedConstants.getCurrentVersion().name();
+			return SharedConstants.getCurrentVersion().getName();
 		} catch (Throwable t) {
 			return "1.21.11";
 		}

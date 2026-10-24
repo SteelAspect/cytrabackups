@@ -210,7 +210,7 @@ public final class BlobStore {
 		RemoteBlobs r = remote;
 		if (!missing.isEmpty()) {
 			if (r == null) {
-				Hash h = hashes.get(missing.getFirst());
+				Hash h = hashes.get(missing.get(0));
 				throw new CorruptBlobException(h, "missing blob " + h.shortHex());
 			}
 			List<Hash> want = new ArrayList<>();
@@ -223,7 +223,7 @@ public final class BlobStore {
 				try {
 					r.downloadAll(want, dests);
 				} catch (NoSuchFileException e) {
-					throw new CorruptBlobException(want.getFirst(), "missing blob, also not in the off-site copy: " + e.getMessage());
+					throw new CorruptBlobException(want.get(0), "missing blob, also not in the off-site copy: " + e.getMessage());
 				}
 				for (int j = 0; j < missing.size(); j++) files[missing.get(j)] = Files.readAllBytes(dests.get(j));
 			} finally {

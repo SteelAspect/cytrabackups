@@ -76,9 +76,8 @@ final class LogPanel extends Widget {
 			Draw.roundRect(ctx.g, x + w - 4, barY, 2, barH, 1, t.color("scrollbar"));
 		}
 		Style s = styleAt(ctx.mouseX, ctx.mouseY);
-		if (s != null && hovered && s.getHoverEvent() instanceof HoverEvent.ShowText(var text)) {
-			ctx.host.showTooltip(List.of(text), ctx.mouseX, ctx.mouseY);
-		}
+		Component text = s != null && hovered && s.getHoverEvent() != null ? s.getHoverEvent().getValue(HoverEvent.Action.SHOW_TEXT) : null;
+		if (text != null) ctx.host.showTooltip(List.of(text), ctx.mouseX, ctx.mouseY);
 	}
 
 	private Style styleAt(double mx, double my) {
@@ -111,12 +110,15 @@ final class LogPanel extends Widget {
 		Style s = styleAt(mx, my);
 		if (s == null || s.getClickEvent() == null) return true;
 		ClickEvent click = s.getClickEvent();
-		if (click instanceof ClickEvent.RunCommand(String command)) {
-			if (ClientState.isOwnCommand(command)) ClientState.runRaw(command);
-		} else if (click instanceof ClickEvent.SuggestCommand(String command)) {
-			suggest.accept(command);
-		} else if (click instanceof ClickEvent.CopyToClipboard(String value)) {
-			Minecraft.getInstance().keyboardHandler.setClipboard(value);
+		String value = click.getValue();
+		switch (click.getAction()) {
+			case RUN_COMMAND -> {
+				if (ClientState.isOwnCommand(value)) ClientState.runRaw(value);
+			}
+			case SUGGEST_COMMAND -> suggest.accept(value);
+			case COPY_TO_CLIPBOARD -> Minecraft.getInstance().keyboardHandler.setClipboard(value);
+			default -> {
+			}
 		}
 		return true;
 	}

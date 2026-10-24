@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "cytrabackups-smoke",
+	"version": "1.0.0",
+	"name": "Alloy Backups (1.20.4 smoke test)",
+	"authors": ["steelaspect"],
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.steelaspect.cytrabackups.client.BackupsSmokeTest"]
+	},
+	"depends": {
+		"cytrabackups": "*"
+	}
+}

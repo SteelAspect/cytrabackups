@@ -219,7 +219,7 @@ class OffsiteOnlyTest {
 			r.sync.enqueueDeleteBlobs(dead);
 			r.sync.process(r.target, r.pool, 4, new Progress(), CancelToken.NONE);
 			assertFalse(r.target.objects.containsKey("backups/000001/meta.json"));
-			assertFalse(r.target.objects.containsKey(OffsiteSync.blobKey(dead.getFirst())));
+			assertFalse(r.target.objects.containsKey(OffsiteSync.blobKey(dead.get(0))));
 			assertEquals(blobsBefore - 1, r.target.objects.keySet().stream().filter(k -> k.startsWith("blobs/")).count());
 
 			r.w.write("level.dat", "broken");

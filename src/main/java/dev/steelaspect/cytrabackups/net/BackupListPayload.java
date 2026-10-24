@@ -3,16 +3,15 @@ package dev.steelaspect.cytrabackups.net;
 import dev.steelaspect.cytrabackups.CytraBackups;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 /** Server -> client: backup list, job status, dimensions and what the player may do. */
 public record BackupListPayload(List<Entry> entries, String status, String jobPhase, float jobProgress, int permissions, int viewDistance,
-								List<String> dimensions) implements CustomPacketPayload {
-	public static final Type<BackupListPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "v2/list"));
-	public static final StreamCodec<RegistryFriendlyByteBuf, BackupListPayload> CODEC = CustomPacketPayload.codec(BackupListPayload::write, BackupListPayload::read);
+								List<String> dimensions) implements FabricPacket {
+	public static final PacketType<BackupListPayload> TYPE = PacketType.create(new ResourceLocation(CytraBackups.MOD_ID, "v2/list"), BackupListPayload::read);
 
 	public static final int CAN_CREATE = 1;
 	public static final int CAN_RESTORE = 2;
@@ -34,7 +33,7 @@ public record BackupListPayload(List<Entry> entries, String status, String jobPh
 		return (permissions & flag) != 0;
 	}
 
-	private static BackupListPayload read(RegistryFriendlyByteBuf buf) {
+	private static BackupListPayload read(FriendlyByteBuf buf) {
 		int n = buf.readVarInt();
 		List<Entry> list = new ArrayList<>(Math.min(n, 4096));
 		for (int i = 0; i < n; i++) {
@@ -52,7 +51,8 @@ public record BackupListPayload(List<Entry> entries, String status, String jobPh
 		return new BackupListPayload(list, status, phase, progress, perms, view, dims);
 	}
 
-	private void write(RegistryFriendlyByteBuf buf) {
+	@Override
+	public void write(FriendlyByteBuf buf) {
 		buf.writeVarInt(entries.size());
 		for (Entry e : entries) {
 			buf.writeVarInt(e.id());
@@ -80,7 +80,7 @@ public record BackupListPayload(List<Entry> entries, String status, String jobPh
 	}
 
 	@Override
-	public Type<? extends CustomPacketPayload> type() {
+	public PacketType<?> getType() {
 		return TYPE;
 	}
 }

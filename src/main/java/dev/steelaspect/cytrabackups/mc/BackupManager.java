@@ -65,7 +65,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -450,7 +450,7 @@ public final class BackupManager {
 		}
 		BackupMeta m = meta.get();
 		if (m.partial && m.areaBoxes != null && !m.areaBoxes.isEmpty() && m.areaDimension != null) {
-			Identifier dim = Identifier.tryParse(m.areaDimension);
+			ResourceLocation dim = ResourceLocation.tryParse(m.areaDimension);
 			ServerLevel level = dim == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, dim));
 			if (level == null) {
 				src.sendFailure(Msg.error("cytrabackups.error.no_dimension", m.areaDimension));
@@ -532,10 +532,10 @@ public final class BackupManager {
 		Feedback fb = Feedback.of(src).and(Feedback.console());
 		String details = Lang.get("cytrabackups.restore.area.details");
 		if (sel.boxes().size() == 1) {
-			ChunkSelection.Box b = sel.boxes().getFirst();
+			ChunkSelection.Box b = sel.boxes().get(0);
 			details = Lang.get("cytrabackups.restore.area.blocks", b.minX() * 16, b.maxX() * 16 + 15, b.minZ() * 16, b.maxZ() * 16 + 15) + " " + details;
 		}
-		prompt(src, Lang.get(Lang.plural("cytrabackups.restore.area.question", n), n, level.dimension().identifier(), describe(meta.get())), details,
+		prompt(src, Lang.get(Lang.plural("cytrabackups.restore.area.question", n), n, level.dimension().location(), describe(meta.get())), details,
 			() -> startChunkRestore(id, level, sel, who, fb));
 	}
 
@@ -567,12 +567,12 @@ public final class BackupManager {
 			job.progress().phase(Lang.get("cytrabackups.phase.read_chunks", id));
 			List<LiveChunkRestore.Write> writes = LiveChunkRestore.prepare(manifest, s.blobs, worldDir, dimensionFolder(level), sel);
 			job.progress().phase(Lang.get("cytrabackups.phase.build_preview"));
-			ChunkSelection.Box b = sel.boxes().getFirst();
+			ChunkSelection.Box b = sel.boxes().get(0);
 			String name = "Backup " + id + " preview";
 			Path file = s.storage.resolve("previews").resolve("backup-" + id + "-" + b.minX() + "_" + b.minZ() + ".litematic");
 			BackupPreview.Result result = BackupPreview.build(level, writes, new net.minecraft.world.level.ChunkPos(b.minX(), b.minZ()),
 				new net.minecraft.world.level.ChunkPos(b.maxX(), b.maxZ()), name, who, file);
-			String dim = level.dimension().identifier().toString();
+			String dim = level.dimension().location().toString();
 			String shared = await(server.submit(() -> {
 				if (!SyncmaticaShare.available()) return null;
 				try {
@@ -643,7 +643,7 @@ public final class BackupManager {
 	private void doChunkRestore(Job job, int id, ServerLevel level, ChunkSelection sel, String who, Feedback fb) throws Exception {
 		Services s = services;
 		CytraConfig cfg = config;
-		String dimId = level.dimension().identifier().toString();
+		String dimId = level.dimension().location().toString();
 		String dimFolder = dimensionFolder(level);
 		Manifest manifest = s.repo.loadManifest(id);
 		if (!cfg.restore.livePartialRestore) {
@@ -1299,7 +1299,7 @@ public final class BackupManager {
 				if (op != null) lines.add(Msg.tr("cytrabackups.status.queued", op.describe()));
 			} catch (IOException ignored) {
 			}
-			MutableComponent off = Msg.tr("cytrabackups.status.offsite", offsiteLines.getFirst());
+			MutableComponent off = Msg.tr("cytrabackups.status.offsite", offsiteLines.get(0));
 			lines.add(off);
 			for (Component c : offsiteLines.subList(1, offsiteLines.size())) lines.add(c);
 			server.execute(() -> {

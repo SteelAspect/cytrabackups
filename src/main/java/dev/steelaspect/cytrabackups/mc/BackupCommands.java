@@ -130,7 +130,7 @@ public final class BackupCommands {
 		var radiusArg = literal("radius").then(argument("radius", integer(0, 32)).executes(c -> {
 			ServerPlayer p = c.getSource().getPlayerOrException();
 			ChunkPos cp = p.chunkPosition();
-			return chunks(c, ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), p.level());
+			return chunks(c, ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), p.serverLevel());
 		}));
 		root.then(literal("restore").requires(Perms.require(Perms.RESTORE))
 			.then(id("id")
@@ -151,7 +151,7 @@ public final class BackupCommands {
 				.then(literal("radius").then(argument("radius", integer(0, 7)).executes(c -> {
 					ServerPlayer p = c.getSource().getPlayerOrException();
 					ChunkPos cp = p.chunkPosition();
-					manager().requestPreview(getInteger(c, "id"), p.level(), ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), c.getSource());
+					manager().requestPreview(getInteger(c, "id"), p.serverLevel(), ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), c.getSource());
 					return 1;
 				})))
 				.then(literal("chunks").then(argument("dimension", DimensionArgument.dimension())
@@ -315,7 +315,7 @@ public final class BackupCommands {
 		}
 		for (BackupMeta b : shown) {
 			MutableComponent id = Msg.hover(Component.literal("#" + b.id).withStyle(s -> s.withColor(Msg.ACCENT)
-				.withClickEvent(new ClickEvent.RunCommand(Msg.command("info", b.id)))), idHover(b));
+				.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, Msg.command("info", b.id)))), idHover(b));
 			String idText = "#" + b.id;
 			if (b.pinned) {
 				id.append(Msg.hover(Component.literal("*").withStyle(Msg.ACCENT), Msg.tr("cytrabackups.hover.pinned")));
@@ -404,7 +404,7 @@ public final class BackupCommands {
 			String usage = "/" + ROOT + " " + h[0];
 			String first = "/" + ROOT + " " + h[0].split(" ")[0] + " ";
 			MutableComponent line = Msg.hover(Component.literal(usage).withStyle(s -> s.withColor(Msg.ACCENT)
-				.withClickEvent(new ClickEvent.SuggestCommand(first))), Msg.tr("cytrabackups.hover.help"));
+				.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, first))), Msg.tr("cytrabackups.hover.help"));
 			line.append(" ").append(Msg.detail("cytrabackups.help." + h[1]));
 			src.sendSuccess(() -> line, false);
 		}

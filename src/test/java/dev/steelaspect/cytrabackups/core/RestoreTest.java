@@ -81,7 +81,7 @@ class RestoreTest {
 			RegionEntry stored = (RegionEntry) w.repo.loadManifest(b.id).get("region/r.0.0.mca");
 			assertTrue(stored.unpacked(), "regions are stored unpacked");
 			assertTrue(stored.chunks().stream().allMatch(c -> c.format() == 2), "zlib chunks record their compression type");
-			byte[] blobFile = Files.readAllBytes(w.blobs.pathFor(stored.chunks().getFirst().blob().hash()));
+			byte[] blobFile = Files.readAllBytes(w.blobs.pathFor(stored.chunks().get(0).blob().hash()));
 			assertEquals(Codec.ZSTD_DICT.id, blobFile[4], "chunk NBT is stored with the dictionary codec");
 			assertTrue(w.backup("again").meta().id > b.id);
 			assertTrue(w.repo.loadManifest(b.id + 1).sameContent(w.repo.loadManifest(b.id), p -> false), "unchanged world: nothing new");
@@ -90,7 +90,7 @@ class RestoreTest {
 			RestoreRecord rec = w.restore.execute(plan, w.world, new Progress(), CancelToken.NONE);
 			assertEquals(original, w.snapshot(), "world content equals backup after restore");
 			assertEquals(40, RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).size());
-			assertArrayEquals(TestWorlds.chunkNbt(1000L, 3000), RegionFiles.unpack(RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).getFirst().payload()));
+			assertArrayEquals(TestWorlds.chunkNbt(1000L, 3000), RegionFiles.unpack(RegionFiles.readAll(w.world.resolve("region/r.0.0.mca")).get(0).payload()));
 			// rollback brings the mutated world back
 			RestorePlan rb = w.restore.planRollback(rec, w.world, new Progress(), CancelToken.NONE);
 			w.restore.execute(rb, w.world, new Progress(), CancelToken.NONE);

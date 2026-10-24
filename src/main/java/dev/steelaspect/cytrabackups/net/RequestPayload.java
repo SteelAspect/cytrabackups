@@ -1,16 +1,19 @@
 package dev.steelaspect.cytrabackups.net;
 
 import dev.steelaspect.cytrabackups.CytraBackups;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 /** Client -> server: asks for GUI data. Actions themselves go through {@link CommandPayload}. */
-public record RequestPayload(String action) implements CustomPacketPayload {
-	public static final Type<RequestPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "v2/request"));
-	public static final StreamCodec<RegistryFriendlyByteBuf, RequestPayload> CODEC = CustomPacketPayload.codec(
-		(p, buf) -> buf.writeUtf(p.action, 32), buf -> new RequestPayload(buf.readUtf(32)));
+public record RequestPayload(String action) implements FabricPacket {
+	public static final PacketType<RequestPayload> TYPE = PacketType.create(new ResourceLocation(CytraBackups.MOD_ID, "v2/request"), buf -> new RequestPayload(buf.readUtf(32)));
+
+	@Override
+	public void write(FriendlyByteBuf buf) {
+		buf.writeUtf(this.action, 32);
+	}
 
 	/** Backup list, job status and permissions ({@link BackupListPayload}). */
 	public static final String LIST = "list";
@@ -18,7 +21,7 @@ public record RequestPayload(String action) implements CustomPacketPayload {
 	public static final String CONFIG = "config";
 
 	@Override
-	public Type<? extends CustomPacketPayload> type() {
+	public PacketType<?> getType() {
 		return TYPE;
 	}
 }

@@ -22,7 +22,7 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Optional client GUI. Only talks to servers that register the CytraBackups channel; without it nothing is sent
@@ -35,7 +35,7 @@ public final class CytraBackupsClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
-		KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "main"));
+		String category = "key.category." + CytraBackups.MOD_ID + ".main";
 		openKey = KeyBindingHelper.registerKeyBinding(new KeyMapping("key.cytrabackups.open", InputConstants.UNKNOWN.getValue(), category));
 		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
 			while (openKey.consumeClick()) openRequested = true;
@@ -48,10 +48,10 @@ public final class CytraBackupsClient implements ClientModInitializer {
 			openRequested = true; // opened next tick, after the chat screen has closed
 			return 1;
 		})));
-		ClientPlayNetworking.registerGlobalReceiver(BackupListPayload.TYPE, (payload, context) -> ClientState.update(payload));
-		ClientPlayNetworking.registerGlobalReceiver(MessagePayload.TYPE, (payload, context) -> ClientState.message(payload));
-		ClientPlayNetworking.registerGlobalReceiver(ConfigPayload.TYPE, (payload, context) -> ClientState.config(payload));
-		ClientPlayNetworking.registerGlobalReceiver(PromptPayload.TYPE, (payload, context) -> Dialogs.prompt(payload));
+		ClientPlayNetworking.registerGlobalReceiver(BackupListPayload.TYPE, (payload, player, sender) -> ClientState.update(payload));
+		ClientPlayNetworking.registerGlobalReceiver(MessagePayload.TYPE, (payload, player, sender) -> ClientState.message(payload));
+		ClientPlayNetworking.registerGlobalReceiver(ConfigPayload.TYPE, (payload, player, sender) -> ClientState.config(payload));
+		ClientPlayNetworking.registerGlobalReceiver(PromptPayload.TYPE, (payload, player, sender) -> Dialogs.prompt(payload));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientState.clear());
 		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
 			if (screen instanceof PauseScreen && ClientState.serverSupported()) {

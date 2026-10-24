@@ -11,7 +11,6 @@ import dev.steelaspect.cytrabackups.mc.Msg;
 import dev.steelaspect.cytrabackups.mc.Perms;
 import java.util.ArrayList;
 import java.util.List;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
@@ -28,20 +27,14 @@ public final class CytraNetworking {
 	private CytraNetworking() {
 	}
 
+	/** 1.20.4: FabricPacket types need no registration. */
 	public static void registerPayloadTypes() {
-		PayloadTypeRegistry.playC2S().register(RequestPayload.TYPE, RequestPayload.CODEC);
-		PayloadTypeRegistry.playC2S().register(CommandPayload.TYPE, CommandPayload.CODEC);
-		PayloadTypeRegistry.playC2S().register(ConfigSavePayload.TYPE, ConfigSavePayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(BackupListPayload.TYPE, BackupListPayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(MessagePayload.TYPE, MessagePayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(PromptPayload.TYPE, PromptPayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(ConfigPayload.TYPE, ConfigPayload.CODEC);
 	}
 
 	public static void registerServerHandlers() {
-		ServerPlayNetworking.registerGlobalReceiver(RequestPayload.TYPE, (payload, ctx) -> handleRequest(payload, ctx.player()));
-		ServerPlayNetworking.registerGlobalReceiver(CommandPayload.TYPE, (payload, ctx) -> runCommand(ctx.player(), payload.command()));
-		ServerPlayNetworking.registerGlobalReceiver(ConfigSavePayload.TYPE, (payload, ctx) -> saveConfig(ctx.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RequestPayload.TYPE, (payload, player, sender) -> handleRequest(payload, player));
+		ServerPlayNetworking.registerGlobalReceiver(CommandPayload.TYPE, (payload, player, sender) -> runCommand(player, payload.command()));
+		ServerPlayNetworking.registerGlobalReceiver(ConfigSavePayload.TYPE, (payload, player, sender) -> saveConfig(player, payload));
 	}
 
 	public static void sendMessage(ServerPlayer player, Component message, boolean error) {
@@ -72,7 +65,7 @@ public final class CytraNetworking {
 			out.sendSystemMessage(Msg.error("cytrabackups.error.not_running"));
 			return;
 		}
-		CytraBackups.LOGGER.info("{} ran /{} from the Alloy Backups GUI", player.getGameProfile().name(), cmd);
+		CytraBackups.LOGGER.info("{} ran /{} from the Alloy Backups GUI", player.getGameProfile().getName(), cmd);
 		CommandSourceStack src = player.createCommandSourceStack().withSource(out);
 		player.level().getServer().getCommands().performPrefixedCommand(src, cmd);
 	}
@@ -120,7 +113,7 @@ public final class CytraNetworking {
 			sendConfig(player, m, r.problems());
 			return;
 		}
-		fb.info("cytrabackups.settings.saving", player.getGameProfile().name(), String.join(", ", p.changes().keySet()));
+		fb.info("cytrabackups.settings.saving", player.getGameProfile().getName(), String.join(", ", p.changes().keySet()));
 		m.saveConfigAndReload(r.config(), fb, () -> sendConfig(player, m, List.of()));
 	}
 
@@ -144,7 +137,7 @@ public final class CytraNetworking {
 		String status = countdown != null ? Lang.get("cytrabackups.gui.status.countdown", countdown)
 			: job != null ? Lang.get("cytrabackups.gui.status.job", job.displayName()) : canList ? Lang.get(Lang.plural("cytrabackups.gui.status.count", list.size()), list.size()) : "";
 		List<String> dims = new ArrayList<>();
-		for (ServerLevel level : m.server().getAllLevels()) dims.add(level.dimension().identifier().toString());
+		for (ServerLevel level : m.server().getAllLevels()) dims.add(level.dimension().location().toString());
 		ServerPlayNetworking.send(player, new BackupListPayload(entries, status, job == null ? "" : job.progress().phase(),
 			job == null ? -1f : job.progress().fraction(), perms, m.server().getPlayerList().getViewDistance(), dims));
 	}

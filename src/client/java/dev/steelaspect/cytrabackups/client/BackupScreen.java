@@ -129,7 +129,7 @@ public final class BackupScreen extends AlloyScreen {
 		Dialogs.form(Component.translatable("cytrabackups.gui.compare.title", e.id()), Component.empty(),
 			List.of(new Dialogs.Field("cytrabackups.gui.compare.field", prev > 0 ? String.valueOf(prev) : "", 10)), values -> {
 				try {
-					int other = Integer.parseInt(values.getFirst().trim());
+					int other = Integer.parseInt(values.get(0).trim());
 					ClientState.run("diff " + Math.min(other, e.id()) + " " + Math.max(other, e.id()));
 				} catch (NumberFormatException ex) {
 					ClientState.log(Component.translatable("cytrabackups.gui.compare.invalid"), true);
@@ -142,7 +142,7 @@ public final class BackupScreen extends AlloyScreen {
 		if (e == null) return;
 		Dialogs.form(Component.translatable("cytrabackups.gui.comment.title", e.id()), Component.empty(),
 			List.of(new Dialogs.Field("cytrabackups.gui.comment.field", e.comment(), 200)), values -> {
-				String c = values.getFirst().trim();
+				String c = values.get(0).trim();
 				ClientState.run(c.isEmpty() ? "comment " + e.id() : "comment " + e.id() + " " + c);
 			});
 	}
@@ -156,7 +156,7 @@ public final class BackupScreen extends AlloyScreen {
 	private void suggest(String command) {
 		String cmd = command.startsWith("/") ? command.substring(1) : command;
 		Dialogs.form(Component.translatable("cytrabackups.gui.command.title"), Component.empty(),
-			List.of(new Dialogs.Field("cytrabackups.gui.command.field", cmd, 512)), values -> ClientState.runRaw(values.getFirst()));
+			List.of(new Dialogs.Field("cytrabackups.gui.command.field", cmd, 512)), values -> ClientState.runRaw(values.get(0)));
 	}
 
 	private static ScrollPanel rows(Widget... rows) {

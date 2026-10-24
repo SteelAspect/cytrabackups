@@ -3,17 +3,17 @@ package dev.steelaspect.cytrabackups.net;
 import dev.steelaspect.cytrabackups.CytraBackups;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 /** Client -> server: changed settings ({@code path -> text}); the server validates, saves the config file and reloads. */
-public record ConfigSavePayload(Map<String, String> changes) implements CustomPacketPayload {
-	public static final Type<ConfigSavePayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "v2/config_save"));
-	public static final StreamCodec<RegistryFriendlyByteBuf, ConfigSavePayload> CODEC = CustomPacketPayload.codec(ConfigSavePayload::write, ConfigSavePayload::read);
+public record ConfigSavePayload(Map<String, String> changes) implements FabricPacket {
+	public static final PacketType<ConfigSavePayload> TYPE = PacketType.create(new ResourceLocation(CytraBackups.MOD_ID, "v2/config_save"), ConfigSavePayload::read);
 
-	private void write(RegistryFriendlyByteBuf buf) {
+	@Override
+	public void write(FriendlyByteBuf buf) {
 		buf.writeVarInt(changes.size());
 		changes.forEach((k, v) -> {
 			buf.writeUtf(k, 256);
@@ -21,7 +21,7 @@ public record ConfigSavePayload(Map<String, String> changes) implements CustomPa
 		});
 	}
 
-	private static ConfigSavePayload read(RegistryFriendlyByteBuf buf) {
+	private static ConfigSavePayload read(FriendlyByteBuf buf) {
 		int n = buf.readVarInt();
 		if (n > 1024) throw new IllegalArgumentException("too many settings");
 		Map<String, String> m = new LinkedHashMap<>();
@@ -30,7 +30,7 @@ public record ConfigSavePayload(Map<String, String> changes) implements CustomPa
 	}
 
 	@Override
-	public Type<? extends CustomPacketPayload> type() {
+	public PacketType<?> getType() {
 		return TYPE;
 	}
 }

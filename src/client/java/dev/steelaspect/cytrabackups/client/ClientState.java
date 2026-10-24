@@ -52,12 +52,12 @@ final class ClientState {
 
 	static void log(Component text, boolean error) {
 		log.add(new LogLine(text, error, System.currentTimeMillis()));
-		while (log.size() > MAX_LOG) log.removeFirst();
+		while (log.size() > MAX_LOG) log.remove(0);
 		logVersion++;
 	}
 
 	static LogLine lastLog() {
-		return log.isEmpty() ? null : log.getLast();
+		return log.isEmpty() ? null : log.get(log.size() - 1);
 	}
 
 	/** Drops the "[Alloy Backups]" chat prefix (also when wrapped by a command failure), keeping colours and links. */
@@ -69,7 +69,7 @@ final class ClientState {
 			return out;
 		}
 		if (c.getContents() instanceof PlainTextContents p && p.text().isEmpty() && c.getSiblings().size() == 1) {
-			return stripPrefix(c.getSiblings().getFirst()).copy().withStyle(c.getStyle());
+			return stripPrefix(c.getSiblings().get(0)).copy().withStyle(c.getStyle());
 		}
 		return c;
 	}

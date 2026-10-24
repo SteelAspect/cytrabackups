@@ -13,7 +13,13 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.chunk.storage.SerializableChunkData;
+import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
+import com.mojang.serialization.Codec;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -36,6 +42,10 @@ public final class BackupPreview {
 	public record Result(Path file, BlockPos min, int sizeX, int sizeY, int sizeZ, long blocks) {
 	}
 
+	/** Same codec as 1.20.4's ChunkSerializer (private there); 1.20.4 has no SerializableChunkData. */
+	private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(
+		Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+
 	private record Loaded(ChunkPos pos, LevelChunkSection[] sections, List<CompoundTag> blockEntities) {
 	}
 
@@ -45,9 +55,10 @@ public final class BackupPreview {
 	 */
 	public static Result build(ServerLevel level, List<LiveChunkRestore.Write> writes, ChunkPos minChunk, ChunkPos maxChunk,
 							   String name, String author, Path out) throws IOException {
-		int minSection = level.getMinSectionY();
+		int minSection = level.getMinSection();
 		int sectionCount = level.getSectionsCount();
-		int current = SharedConstants.getCurrentVersion().dataVersion().version();
+		int current = SharedConstants.getCurrentVersion().getDataVersion().getVersion();
+		net.minecraft.core.Registry<Biome> biomes = level.registryAccess().registryOrThrow(Registries.BIOME);
 		List<Loaded> chunks = new ArrayList<>();
 		int lowY = Integer.MAX_VALUE, highY = Integer.MIN_VALUE;
 		for (LiveChunkRestore.Write w : writes) {
@@ -56,22 +67,25 @@ public final class BackupPreview {
 			int version = NbtUtils.getDataVersion(tag, -1);
 			if (version >= 0 && version < current) {
 				CompoundTag context = new CompoundTag();
-				context.putString("dimension", level.dimension().identifier().toString());
+				context.putString("dimension", level.dimension().location().toString());
 				context.putString("generator", "minecraft:noise");
 				tag.put("__context", context);
 				tag = DataFixTypes.CHUNK.updateToCurrentVersion(level.getServer().getFixerUpper(), tag, version);
 				tag.remove("__context");
 			}
-			SerializableChunkData data = SerializableChunkData.parse(level, level.palettedContainerFactory(), tag);
-			if (data == null) continue;
 			LevelChunkSection[] sections = new LevelChunkSection[sectionCount];
-			for (SerializableChunkData.SectionData s : data.sectionData()) {
-				int i = s.y() - minSection;
-				if (i < 0 || i >= sectionCount || s.chunkSection() == null) continue;
-				LevelChunkSection section = s.chunkSection();
+			ListTag sectionTags = tag.getList("sections", Tag.TAG_COMPOUND);
+			for (int si = 0; si < sectionTags.size(); si++) {
+				CompoundTag st = sectionTags.getCompound(si);
+				int sy = st.getByte("Y");
+				int i = sy - minSection;
+				if (i < 0 || i >= sectionCount || !st.contains("block_states", Tag.TAG_COMPOUND)) continue;
+				PalettedContainer<BlockState> states = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, st.getCompound("block_states")).result().orElse(null);
+				if (states == null) continue;
+				LevelChunkSection section = new LevelChunkSection(states, new LevelChunkSection(biomes).getBiomes());
 				sections[i] = section;
 				if (section.hasOnlyAir()) continue;
-				int baseY = s.y() * 16;
+				int baseY = sy * 16;
 				for (int y = 0; y < 16; y++) {
 					if (baseY + y >= lowY && baseY + y <= highY) continue;
 					if (layerHasBlocks(section, y)) {
@@ -80,10 +94,13 @@ public final class BackupPreview {
 					}
 				}
 			}
-			chunks.add(new Loaded(w.pos(), sections, data.blockEntities()));
+			List<CompoundTag> blockEntities = new ArrayList<>();
+			ListTag beTags = tag.getList("block_entities", Tag.TAG_COMPOUND);
+			for (int bi = 0; bi < beTags.size(); bi++) blockEntities.add(beTags.getCompound(bi));
+			chunks.add(new Loaded(w.pos(), sections, blockEntities));
 		}
 		if (lowY > highY) {
-			lowY = level.getMinY();
+			lowY = level.getMinBuildHeight();
 			highY = lowY;
 		}
 		int sizeX = (maxChunk.x - minChunk.x + 1) * 16, sizeZ = (maxChunk.z - minChunk.z + 1) * 16, sizeY = highY - lowY + 1;
@@ -124,7 +141,7 @@ public final class BackupPreview {
 				}
 			}
 			for (CompoundTag be : c.blockEntities()) {
-				int x = be.getIntOr("x", 0) - min.getX(), y = be.getIntOr("y", 0) - min.getY(), z = be.getIntOr("z", 0) - min.getZ();
+				int x = be.getInt("x") - min.getX(), y = be.getInt("y") - min.getY(), z = be.getInt("z") - min.getZ();
 				if (x < 0 || y < 0 || z < 0 || x >= sizeX || y >= sizeY || z >= sizeZ) continue;
 				CompoundTag copy = be.copy();
 				copy.putInt("x", x);
@@ -162,7 +179,7 @@ public final class BackupPreview {
 
 		CompoundTag root = new CompoundTag();
 		root.putInt("MinecraftDataVersion", current);
-		root.putInt("Version", 7);
+		root.putInt("Version", 6); // Litematica 0.17 (1.20.4) reads schematic versions up to 6
 		root.putInt("SubVersion", 1);
 		root.put("Metadata", meta);
 		root.put("Regions", regions);

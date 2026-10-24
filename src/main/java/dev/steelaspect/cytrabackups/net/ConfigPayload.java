@@ -4,17 +4,17 @@ import dev.steelaspect.cytrabackups.CytraBackups;
 import dev.steelaspect.cytrabackups.core.config.ConfigSchema;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 /** Server -> client: every setting for the editor (secrets masked), plus problems from the last save attempt. */
-public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> problems) implements CustomPacketPayload {
-	public static final Type<ConfigPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(CytraBackups.MOD_ID, "v2/config"));
-	public static final StreamCodec<RegistryFriendlyByteBuf, ConfigPayload> CODEC = CustomPacketPayload.codec(ConfigPayload::write, ConfigPayload::read);
+public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> problems) implements FabricPacket {
+	public static final PacketType<ConfigPayload> TYPE = PacketType.create(new ResourceLocation(CytraBackups.MOD_ID, "v2/config"), ConfigPayload::read);
 
-	private void write(RegistryFriendlyByteBuf buf) {
+	@Override
+	public void write(FriendlyByteBuf buf) {
 		buf.writeVarInt(entries.size());
 		for (ConfigSchema.Entry e : entries) {
 			buf.writeUtf(e.path(), 256);
@@ -28,7 +28,7 @@ public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> probl
 		for (String p : problems) buf.writeUtf(p.length() > 1024 ? p.substring(0, 1024) : p, 1024);
 	}
 
-	private static ConfigPayload read(RegistryFriendlyByteBuf buf) {
+	private static ConfigPayload read(FriendlyByteBuf buf) {
 		int n = buf.readVarInt();
 		List<ConfigSchema.Entry> entries = new ArrayList<>(Math.min(n, 1024));
 		for (int i = 0; i < n; i++) {
@@ -47,7 +47,7 @@ public record ConfigPayload(List<ConfigSchema.Entry> entries, List<String> probl
 	}
 
 	@Override
-	public Type<? extends CustomPacketPayload> type() {
+	public PacketType<?> getType() {
 		return TYPE;
 	}
 }

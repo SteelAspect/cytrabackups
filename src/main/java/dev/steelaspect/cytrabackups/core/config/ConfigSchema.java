@@ -255,7 +255,7 @@ public final class ConfigSchema {
 			switch (l.type()) {
 				case CHOICE -> {
 					if (v == null || !l.choices().contains(v.toString().toLowerCase(Locale.ROOT))) {
-						String choices = Lang.get("cytrabackups.list.or", String.join(", ", l.choices().subList(0, l.choices().size() - 1)), l.choices().getLast());
+						String choices = Lang.get("cytrabackups.list.or", String.join(", ", l.choices().subList(0, l.choices().size() - 1)), l.choices().get(l.choices().size() - 1));
 						p.add(Lang.get("cytrabackups.config.problem.choice", l.path(), choices, v));
 					}
 				}

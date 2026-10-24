@@ -3,7 +3,6 @@ package dev.steelaspect.cytrabackups.core.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
-import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Lang;
@@ -37,7 +36,7 @@ public final class ConfigIO {
 		CytraConfig cfg;
 		try {
 			JsonReader reader = new JsonReader(new StringReader(text));
-			reader.setStrictness(Strictness.LENIENT); // accepts // and /* */ comments and trailing commas
+			reader.setLenient(true); // accepts // and /* */ comments and trailing commas
 			cfg = GSON.fromJson(reader, CytraConfig.class);
 		} catch (JsonParseException | IllegalStateException e) {
 			throw new IOException(Lang.get("cytrabackups.config.problem.parse", file.getFileName(), e.getMessage()), e);

@@ -40,7 +40,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.storage.EntityStorage;
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 import net.minecraft.world.level.chunk.storage.SectionStorage;
-import net.minecraft.world.level.chunk.storage.SimpleRegionStorage;
+import net.minecraft.world.level.chunk.storage.IOWorker;
 import net.minecraft.world.level.levelgen.structure.StructureCheck;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 
@@ -105,10 +105,10 @@ public final class LiveChunkRestore {
 			ChunkPos cp = p.chunkPosition();
 			int d = distanceToSelection(sel, cp.x, cp.z);
 			if (d <= range) {
-				return Safety.no(Lang.get("cytrabackups.live.player_near", p.getGameProfile().name(), d, range + 1, (range + 1) * 16));
+				return Safety.no(Lang.get("cytrabackups.live.player_near", p.getGameProfile().getName(), d, range + 1, (range + 1) * 16));
 			}
 		}
-		LongSet forced = level.getForceLoadedChunks();
+		LongSet forced = level.getForcedChunks();
 		for (long f : forced) {
 			ChunkPos cp = new ChunkPos(f);
 			if (distanceToSelection(sel, cp.x, cp.z) <= 2) return Safety.no(Lang.get("cytrabackups.live.forceloaded", cp.x, cp.z));
@@ -136,14 +136,15 @@ public final class LiveChunkRestore {
 		return loaded;
 	}
 
-	public static SimpleRegionStorage storage(ServerLevel level, Kind kind) {
+	/** 1.20.4 has no SimpleRegionStorage: each storage writes through its own IOWorker. */
+	public static IOWorker storage(ServerLevel level, Kind kind) {
 		return switch (kind) {
-			case REGION -> level.getChunkSource().chunkMap;
+			case REGION -> level.getChunkSource().chunkMap.worker;
 			case ENTITIES -> {
-				if (level.entityManager.permanentStorage instanceof EntityStorage es) yield es.simpleRegionStorage;
+				if (level.entityManager.permanentStorage instanceof EntityStorage es) yield es.worker;
 				throw new IllegalStateException(Lang.get("cytrabackups.live.entity_storage"));
 			}
-			case POI -> level.getPoiManager().simpleRegionStorage;
+			case POI -> level.getPoiManager().worker;
 		};
 	}
 
@@ -222,10 +223,10 @@ public final class LiveChunkRestore {
 		EntityStorage entityStorage = level.entityManager.permanentStorage instanceof EntityStorage es ? es : null;
 		java.util.Set<ChunkPos> touched = new java.util.HashSet<>();
 		for (Write w : writes) {
-			storage(level, w.kind()).write(w.pos(), w.tag());
+			storage(level, w.kind()).store(w.pos(), w.tag());
 			touched.add(w.pos());
 		}
-		SectionStorage<?, ?> poiSections = poi;
+		SectionStorage<?> poiSections = poi;
 		StructureCheck structures = level.structureCheck;
 		for (ChunkPos pos : touched) {
 			long k = pos.toLong();
@@ -234,15 +235,12 @@ public final class LiveChunkRestore {
 			structures.loadedChunks.remove(k);
 			structures.featureChecks.values().forEach(checks -> checks.remove(k));
 			if (entityStorage != null) entityStorage.emptyChunks.remove(k);
-			synchronized (poiSections.loadLock) {
-				poiSections.loadedChunks.remove(k);
-				poiSections.pendingLoads.remove(k);
-			}
-			poiSections.dirtyChunks.remove(k);
+			// 1.20.4 SectionStorage reads a column synchronously when its sections are missing from the cache
 			poi.loadedChunks.remove(k);
-			for (int y = level.getMinSectionY(); y <= level.getMaxSectionY(); y++) {
+			for (int y = level.getMinSection(); y < level.getMaxSection(); y++) {
 				long sk = SectionPos.asLong(pos.x, y, pos.z);
 				poiSections.storage.remove(sk);
+				poiSections.dirty.remove(sk);
 				poiSections.onSectionLoad(sk);
 			}
 		}

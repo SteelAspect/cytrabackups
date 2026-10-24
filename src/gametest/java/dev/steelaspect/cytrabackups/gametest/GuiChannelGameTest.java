@@ -6,15 +6,14 @@ import dev.steelaspect.cytrabackups.net.CytraNetworking;
 import dev.steelaspect.cytrabackups.net.GuiCommandSource;
 import dev.steelaspect.cytrabackups.net.PromptPayload;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.LevelBasedPermissionSet;
-import net.minecraft.server.players.NameAndId;
+import net.minecraft.server.players.ServerOpListEntry;
 
 /**
  * The GUI runs every action as a /cbackup command through {@link CytraNetworking#runCommand}. Checks with real
@@ -22,7 +21,7 @@ import net.minecraft.server.players.NameAndId;
  * without permission gets exactly what typing the command would give, and that other commands are refused.
  */
 @SuppressWarnings("removal") // makeMockServerPlayerInLevel is the only way to get a ServerPlayer in a headless test
-public class GuiChannelGameTest {
+public class GuiChannelGameTest implements FabricGameTest {
 	/** Captures what the GUI would show. */
 	private static final class Capture extends GuiCommandSource {
 		final List<String> lines = new CopyOnWriteArrayList<>();
@@ -48,7 +47,7 @@ public class GuiChannelGameTest {
 		}
 
 		String last() {
-			return lines.isEmpty() ? "" : lines.getLast();
+			return lines.isEmpty() ? "" : lines.get(lines.size() - 1);
 		}
 	}
 
@@ -56,13 +55,14 @@ public class GuiChannelGameTest {
 		return m.services().repo.list().stream().filter(b -> !b.pinned).findFirst().orElse(null);
 	}
 
-	@GameTest(maxTicks = 400_000)
+	@GameTest(template = EMPTY_STRUCTURE, timeoutTicks = 400_000)
 	public void guiRunsBackupCommandsAsThePlayer(GameTestHelper helper) {
 		MinecraftServer server = helper.getLevel().getServer();
 		BackupManager m = BackupManager.get();
 		ServerPlayer admin = helper.makeMockServerPlayerInLevel();
 		// explicit level: the test server's default op level is "all players" (0)
-		server.getPlayerList().op(new NameAndId(admin.getGameProfile()), Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
+		server.getPlayerList().getOps().add(new ServerOpListEntry(admin.getGameProfile(), 4, false));
+		server.getPlayerList().sendPlayerPermissionLevel(admin);
 		Capture adminOut = new Capture(admin);
 		int[] id = {-1};
 
@@ -87,7 +87,7 @@ public class GuiChannelGameTest {
 			})
 			.thenExecute(() -> {
 				// the same player without op: the GUI gets exactly what typing the command would give
-				server.getPlayerList().deop(new NameAndId(admin.getGameProfile()));
+				server.getPlayerList().deop(admin.getGameProfile());
 				Capture guestOut = new Capture(admin);
 				CytraNetworking.runCommand(guestOut, "cbackup delete " + id[0]);
 				helper.assertTrue(guestOut.prompt == null, "no confirmation for a player without permission");

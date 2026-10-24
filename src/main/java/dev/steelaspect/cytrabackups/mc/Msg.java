@@ -49,23 +49,23 @@ public final class Msg {
 	}
 
 	public static MutableComponent button(String labelKey, String command, String hoverKey, Object... hoverArgs) {
-		return button(labelKey, new ClickEvent.RunCommand(command), ACCENT, hoverKey, hoverArgs);
+		return button(labelKey, new ClickEvent(ClickEvent.Action.RUN_COMMAND, command), ACCENT, hoverKey, hoverArgs);
 	}
 
 	/** Red button for restore, delete and other actions that change or remove data (they still ask to confirm). */
 	public static MutableComponent dangerButton(String labelKey, String command, String hoverKey, Object... hoverArgs) {
-		return button(labelKey, new ClickEvent.RunCommand(command), ChatFormatting.RED, hoverKey, hoverArgs);
+		return button(labelKey, new ClickEvent(ClickEvent.Action.RUN_COMMAND, command), ChatFormatting.RED, hoverKey, hoverArgs);
 	}
 
 	/** Button that puts a command into the chat box to be completed. */
 	public static MutableComponent suggestButton(String labelKey, String command, String hoverKey, Object... hoverArgs) {
-		return button(labelKey, new ClickEvent.SuggestCommand(command), ACCENT, hoverKey, hoverArgs);
+		return button(labelKey, new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, command), ACCENT, hoverKey, hoverArgs);
 	}
 
 	private static MutableComponent button(String labelKey, ClickEvent click, ChatFormatting color, String hoverKey, Object... hoverArgs) {
 		Component hover = tr(hoverKey, hoverArgs);
 		return ComponentUtils.wrapInSquareBrackets(tr(labelKey)).withStyle(s -> s.withColor(color).withClickEvent(click)
-			.withHoverEvent(new HoverEvent.ShowText(hover)));
+			.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hover)));
 	}
 
 	/** A disabled button: grey, not clickable. */
@@ -76,11 +76,11 @@ public final class Msg {
 	/** "2h ago", with the exact time on hover. */
 	public static MutableComponent ago(long millis, ZoneId zone) {
 		return Component.literal(Formatting.ago(millis, System.currentTimeMillis()))
-			.withStyle(s -> s.withHoverEvent(new HoverEvent.ShowText(Component.literal(Formatting.dateTime(millis, zone)))));
+			.withStyle(s -> s.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(Formatting.dateTime(millis, zone)))));
 	}
 
 	public static MutableComponent hover(MutableComponent c, Component text) {
-		return c.withStyle(s -> s.withHoverEvent(new HoverEvent.ShowText(text)));
+		return c.withStyle(s -> s.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, text)));
 	}
 
 	public static String command(Object... parts) {

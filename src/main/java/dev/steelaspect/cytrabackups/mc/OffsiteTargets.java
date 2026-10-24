@@ -33,6 +33,18 @@ public final class OffsiteTargets {
 		};
 	}
 
+	/** True if two locations name the same place (ignoring surrounding slashes and spaces). */
+	public static boolean sameLocation(String a, String b) {
+		return normalize(a).equals(normalize(b));
+	}
+
+	private static String normalize(String s) {
+		String t = s == null ? "" : s.trim().replace('\\', '/');
+		while (t.startsWith("/")) t = t.substring(1);
+		while (t.endsWith("/")) t = t.substring(0, t.length() - 1);
+		return t;
+	}
+
 	/**
 	 * The same destination (credentials, bucket, host) with another location: where another server's backups are, for
 	 * /cbackup migrate. Blank means this server's own location.

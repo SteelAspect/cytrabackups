@@ -115,7 +115,9 @@ When a panel host can't transfer a server and there's no shell, copying a big wo
 4. The server stops and applies the move on the next start, before the world loads. Then it stops once more, so the moved mods load on the start after that. A panel with auto-restart does this by itself.
 
 What the import changes:
-- The server's own `config/cytrabackups.json` is kept unless you add `replaceBackupSettings`.
+- The server's own `config/cytrabackups.json` is kept unless you add `replaceBackupSettings`. Even then the new server keeps its own off-site destination, so the old server's backups in the bucket are never overwritten.
+- The new server needs its own prefix: an import from the location it uses itself is refused.
+- Your backup history stays with the old server: the old backups remain in the bucket under the old prefix, and the new server starts its own list.
 - Files at the top of the server folder are never removed, such as the panel's server jar.
 - Everything replaced goes to the recycle bin, so `/cbackup rollback` undoes the move.
 

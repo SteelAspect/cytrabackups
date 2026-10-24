@@ -86,6 +86,10 @@ public class MigrateGameTest {
 				}
 				helper.assertTrue(msgs.all().contains("could not be uploaded"), "reports the failed upload: " + msgs.all());
 				helper.assertTrue(m.services().repo.latestFull().map(x -> !x.serverScope()).orElse(true), "never the world baseline");
+				// importing from this server's own location would number new backups from #1 over the old ones: refused
+				String own = dev.steelaspect.cytrabackups.mc.OffsiteTargets.location(m.config());
+				helper.assertFalse(m.requestMigrateImport(own + "/", b.id, false, helper.getLevel().getServer().createCommandSourceStack()),
+					"an import from this server's own off-site location is refused");
 				Messages refuse = new Messages();
 				helper.assertFalse(m.export(b.id, "gametest", refuse), "zip export refuses a server backup");
 				helper.assertTrue(refuse.all().contains("server backup"), "explains why: " + refuse.all());

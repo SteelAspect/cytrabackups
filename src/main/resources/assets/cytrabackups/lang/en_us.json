@@ -720,5 +720,9 @@
 	"cytrabackups.migrate.description": "server moved in from server backup #%s",
 	"cytrabackups.migrate.applied": "Server moved in from server backup #%s: %s files written, %s removed, %s already equal. The replaced files are in the recycle bin.",
 	"cytrabackups.countdown.migrate": "Moving in server backup #%s",
-	"cytrabackups.pending.migrate": "import of server backup #%s from %s"
+	"cytrabackups.pending.migrate": "import of server backup #%s from %s",
+	"cytrabackups.migrate.same_location": "This server's own off-site location is %s, the same as the old server's. Give this server its own prefix (or folder) first, or its backups would overwrite the old server's ones there.",
+	"cytrabackups.migrate.kept_destination": "The old server's backup settings came in, but this server keeps its own off-site destination (%s), so the old backups there are never overwritten.",
+	"cytrabackups.migrate.kept_destination_failed": "Check this server's off-site settings before its next backup: they could not be put back to its own destination.",
+	"cytrabackups.error.rollback_migrate_admin": "The last restore was a server move. Undoing it replaces the whole server folder, so it needs the admin permission (cytrabackups.admin)."
 }

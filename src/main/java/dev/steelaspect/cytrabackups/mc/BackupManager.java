@@ -790,6 +790,11 @@ public final class BackupManager {
 			return;
 		}
 		RestoreRecord r = rec.get();
+		if (r.kind == RestoreRecord.Kind.MIGRATE && !Perms.check(src, Perms.ADMIN)) {
+			// undoing a server move swaps the whole server folder (mods, configs): as much as importing it, so admin only
+			src.sendFailure(Msg.error("cytrabackups.error.rollback_migrate_admin"));
+			return;
+		}
 		String who = src.getTextName();
 		Feedback fb = Feedback.of(src).and(Feedback.console());
 		prompt(src, Lang.get("cytrabackups.rollback.question", r.description, Formatting.dateTimeShort(r.appliedAt, zone())),
@@ -1363,6 +1368,11 @@ public final class BackupManager {
 		}
 		String who = src.getTextName();
 		String loc = location == null || location.isBlank() ? OffsiteTargets.location(config) : location;
+		if (OffsiteTargets.sameLocation(loc, OffsiteTargets.location(config))) {
+			// this server's own backups would be numbered from #1 again in the old server's place, over its backups
+			fb.error("cytrabackups.migrate.same_location", loc);
+			return false;
+		}
 		return runJob("cytrabackups.job.migrate_prepare", who, fb, false, job -> {
 			CytraConfig cfg = config;
 			Path dir = ServerMigration.workDir(services.storage, id);

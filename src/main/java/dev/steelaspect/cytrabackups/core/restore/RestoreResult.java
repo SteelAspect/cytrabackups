@@ -9,4 +9,6 @@ public final class RestoreResult {
 	public Integer preRestoreBackupId;
 	public String restoreId;
 	public boolean reported;
+	/** Mods or their settings changed: the server must start once more before it runs the new set. */
+	public boolean restartNeeded;
 }

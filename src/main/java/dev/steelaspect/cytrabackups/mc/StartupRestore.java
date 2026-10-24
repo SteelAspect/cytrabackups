@@ -27,7 +27,8 @@ public final class StartupRestore {
 		try {
 			CytraConfig cfg = ModEnv.loadConfigOrDefaults();
 			Path storage = ModEnv.storageFor(cfg, levelId);
-			apply(cfg, storage, levelId, levelDir, "world load");
+			RestoreResult r = apply(cfg, storage, levelId, levelDir, "world load");
+			if (r != null && r.success && r.restartNeeded) MigrationImport.stopForRestart();
 		} catch (Throwable t) {
 			CytraBackups.LOGGER.error("Alloy Backups: applying the queued restore failed; the world is loaded unchanged", t);
 		}
@@ -63,8 +64,8 @@ public final class StartupRestore {
 				Progress progress = new Progress();
 				Thread logger = progressLogger(progress);
 				try {
-					result = s.runner(levelId, msg -> CytraBackups.LOGGER.info("Alloy Backups: {}", msg), target)
-						.apply(op, target, progress, CancelToken.NONE);
+					result = op.type == PendingOperation.Type.MIGRATE_IMPORT ? MigrationImport.apply(cfg, storage, s, op, progress)
+						: s.runner(levelId, msg -> CytraBackups.LOGGER.info("Alloy Backups: {}", msg), target).apply(op, target, progress, CancelToken.NONE);
 				} finally {
 					logger.interrupt();
 				}

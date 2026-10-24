@@ -131,10 +131,10 @@ public final class BackupRepository {
 		return Optional.ofNullable(last);
 	}
 
-	/** Latest complete (non-partial) backup, used as the baseline for incremental scans. */
+	/** Latest complete (non-partial) world backup, used as the baseline for incremental scans. Server backups never are. */
 	public Optional<BackupMeta> latestFull() {
 		BackupMeta last = null;
-		for (BackupMeta m : metas.values()) if (!m.partial) last = m;
+		for (BackupMeta m : metas.values()) if (!m.partial && !m.serverScope()) last = m;
 		return Optional.ofNullable(last);
 	}
 

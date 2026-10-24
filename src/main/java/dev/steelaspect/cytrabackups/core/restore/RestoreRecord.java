@@ -6,7 +6,9 @@ import java.util.List;
 /** Persistent record of an applied restore, used by {@code /cbackup rollback}. */
 public final class RestoreRecord {
 	public enum Kind {
-		FULL, CHUNKS, ROLLBACK
+		FULL, CHUNKS, ROLLBACK,
+		/** A server moved in with /cbackup migrate import: paths are relative to the server folder ({@code worldDir}). */
+		MIGRATE
 	}
 
 	public static final class Item {

@@ -9,7 +9,8 @@
 		"fabric-gametest": [
 			"dev.steelaspect.cytrabackups.gametest.CytraBackupsGameTest",
 			"dev.steelaspect.cytrabackups.gametest.PermissionsGameTest",
-			"dev.steelaspect.cytrabackups.gametest.GuiChannelGameTest"
+			"dev.steelaspect.cytrabackups.gametest.GuiChannelGameTest",
+			"dev.steelaspect.cytrabackups.gametest.MigrateGameTest"
 		],
 		"fabric-client-gametest": [
 			"dev.steelaspect.cytrabackups.gametest.GuiPreviewClientGameTest",

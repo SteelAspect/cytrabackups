@@ -55,6 +55,11 @@ public final class BackupService {
 		};
 		/** Disable size+mtime reuse of the previous manifest (imports of foreign folders). */
 		public boolean noReuse;
+		/** Files to reuse by size+mtime instead of the latest world backup (server backups: see ServerMigration#baseline). */
+		public Manifest baseline;
+		/** Server backups: recorded for the import checks. */
+		public String loaderVersion = "";
+		public String worldFolder = "";
 	}
 
 	/** {@code meta} is null when the backup was skipped because nothing changed. */
@@ -65,7 +70,9 @@ public final class BackupService {
 		long start = System.currentTimeMillis();
 		Manifest previous = Manifest.empty();
 		var latest = repo.latestFull();
-		if (latest.isPresent() && !req.noReuse) {
+		if (req.baseline != null) {
+			previous = req.baseline;
+		} else if (latest.isPresent() && !req.noReuse) {
 			try {
 				previous = repo.loadManifest(latest.get().id);
 			} catch (IOException e) {
@@ -84,7 +91,7 @@ public final class BackupService {
 		er.warnings = req.warnings;
 		BackupEngine.Result scan = engine.run(er);
 
-		if (req.skipIfUnchanged && req.only == null && latest.isPresent() && scan.manifest.sameContent(previous, req.unchangedIgnore)) {
+		if (req.skipIfUnchanged && req.baseline == null && req.only == null && latest.isPresent() && scan.manifest.sameContent(previous, req.unchangedIgnore)) {
 			return new Outcome(null, scan, true);
 		}
 
@@ -109,6 +116,8 @@ public final class BackupService {
 		meta.reusedFiles = scan.reusedFiles;
 		meta.referencedStoredBytes = referencedBytes(scan.manifest);
 		meta.minecraftVersion = minecraftVersion;
+		meta.loaderVersion = req.loaderVersion == null ? "" : req.loaderVersion;
+		meta.worldFolder = req.worldFolder == null ? "" : req.worldFolder;
 		meta.modVersion = modVersion;
 		meta.durationMillis = System.currentTimeMillis() - start;
 		repo.save(meta, scan.manifest, scan.newBlobs);

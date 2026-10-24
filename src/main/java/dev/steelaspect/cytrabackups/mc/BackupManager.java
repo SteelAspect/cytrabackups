@@ -21,6 +21,7 @@ import dev.steelaspect.cytrabackups.core.config.ConfigIO;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import dev.steelaspect.cytrabackups.core.diff.BackupDiff;
 import dev.steelaspect.cytrabackups.core.manifest.Manifest;
+import dev.steelaspect.cytrabackups.core.migrate.ServerMigration;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteSync;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteTarget;
 import dev.steelaspect.cytrabackups.core.offsite.StreamingUpload;
@@ -280,7 +281,7 @@ public final class BackupManager {
 		return runJob(JOB_BACKUP, creator, fb, false, job -> {
 			boolean ok = false;
 			try {
-				doBackup(job, trigger, comment, creator, fb, automatic);
+				doBackup(job, trigger, comment, creator, fb, automatic, false);
 				ok = true;
 			} catch (NotEnoughSpaceException e) {
 				notifier.lowDisk(FileUtil.usableSpace(services.storage), config.minFreeSpaceMiB * 1024 * 1024);
@@ -311,7 +312,8 @@ public final class BackupManager {
 		}
 	}
 
-	private BackupMeta doBackup(Job job, Trigger trigger, String comment, String creator, Feedback fb, boolean automatic) throws Exception {
+	/** {@code serverScope}: back up the whole server folder (migrate export) instead of the world. */
+	private BackupMeta doBackup(Job job, Trigger trigger, String comment, String creator, Feedback fb, boolean automatic, boolean serverScope) throws Exception {
 		Services s = services;
 		CytraConfig cfg = config;
 		checkSpace(s, 0);
@@ -340,6 +342,16 @@ public final class BackupManager {
 			req.creator = creator;
 			req.filter = s.filter();
 			req.excludedDirs = s.excludedDirs(worldDir);
+			if (serverScope) {
+				Path game = ModEnv.gameDir();
+				req.worldDir = game;
+				req.filter = ServerMigration.filter(cfg.migrate.include, cfg.migrate.exclude, true);
+				req.excludedDirs = s.excludedDirs(game);
+				req.scope = BackupMeta.SCOPE_SERVER;
+				req.worldFolder = FileUtil.relative(game, worldDir);
+				req.loaderVersion = ModEnv.loaderVersion();
+				req.baseline = ServerMigration.baseline(s.repo, req.worldFolder);
+			}
 			req.skipIfUnchanged = automatic && cfg.schedule.skipIfUnchanged;
 			List<Glob> ignore = cfg.schedule.unchangedIgnore.stream().map(Glob::new).toList();
 			req.unchangedIgnore = p -> ignore.stream().anyMatch(g -> g.matches(p));
@@ -389,6 +401,11 @@ public final class BackupManager {
 			server.execute(() -> server.getPlayerList().broadcastSystemMessage(Msg.info("cytrabackups.backup.announce", m.id), false));
 		}
 		notifier.backupSuccess(m);
+		if (serverScope) {
+			// kept until the move is done: pruning never removes it
+			m.pinned = true;
+			s.repo.updateMeta(m);
+		}
 		if (cfg.offsite.enabled) {
 			offsite.enqueueUpload(m.id);
 			kickOffsite();
@@ -449,6 +466,10 @@ public final class BackupManager {
 			return;
 		}
 		BackupMeta m = meta.get();
+		if (m.serverScope()) {
+			src.sendFailure(Msg.error("cytrabackups.error.server_backup", id));
+			return;
+		}
 		if (m.partial && m.areaBoxes != null && !m.areaBoxes.isEmpty() && m.areaDimension != null) {
 			Identifier dim = Identifier.tryParse(m.areaDimension);
 			ServerLevel level = dim == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, dim));
@@ -523,6 +544,10 @@ public final class BackupManager {
 			src.sendFailure(Msg.error("cytrabackups.error.no_backup", id));
 			return;
 		}
+		if (meta.get().serverScope()) {
+			src.sendFailure(Msg.error("cytrabackups.error.server_backup", id));
+			return;
+		}
 		long n = sel.chunkCount();
 		if (n > config.restore.maxChunks) {
 			src.sendFailure(Msg.error("cytrabackups.error.too_many_chunks", n, config.restore.maxChunks));
@@ -554,6 +579,10 @@ public final class BackupManager {
 	public boolean requestPreview(int id, ServerLevel level, ChunkSelection sel, Feedback fb, String who, ServerPlayer player) {
 		if (services.repo.get(id).isEmpty()) {
 			fb.error("cytrabackups.error.no_backup", id);
+			return false;
+		}
+		if (services.repo.get(id).get().serverScope()) {
+			fb.error("cytrabackups.error.server_backup", id);
 			return false;
 		}
 		long n = sel.chunkCount();
@@ -1002,6 +1031,10 @@ public final class BackupManager {
 	}
 
 	public boolean export(int id, String who, Feedback fb) {
+		if (services.repo.get(id).map(BackupMeta::serverScope).orElse(false)) {
+			fb.error("cytrabackups.error.server_backup", id);
+			return false;
+		}
 		return runJob("cytrabackups.job.export", who, fb, false, job -> {
 			Path out = ZipExporter.export(services.repo, id, services.storage.resolve("exports"), job.progress(), job.cancel());
 			Path game = ModEnv.gameDir();
@@ -1241,6 +1274,133 @@ public final class BackupManager {
 					.append(Msg.button("cytrabackups.button.info", Msg.command("info", id), "cytrabackups.hover.info", id)), false);
 			}
 		});
+	}
+
+	// ---- moving a whole server (/cbackup migrate) ----
+
+	private static String quoted(String s) {
+		return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+	}
+
+	private static String importCommand(String location, int id) {
+		return "/" + BackupCommands.ROOT + " migrate import " + quoted(location) + " " + id;
+	}
+
+	/**
+	 * Old server: backs up the whole server folder, pins it and waits until it is in the off-site copy, then prints the
+	 * command to run on the new server.
+	 */
+	public boolean migrateExport(String comment, String who, Feedback fb) {
+		if (!ModEnv.isDedicated()) {
+			fb.error("cytrabackups.migrate.dedicated_only");
+			return false;
+		}
+		if (!config.offsite.enabled) {
+			fb.error("cytrabackups.migrate.offsite_needed");
+			return false;
+		}
+		if (!worldDir.startsWith(ModEnv.gameDir())) {
+			fb.error("cytrabackups.migrate.world_outside");
+			return false;
+		}
+		return runJob("cytrabackups.job.migrate_export", who, fb, false, job -> {
+			String c = comment == null || comment.isBlank() ? Lang.get("cytrabackups.migrate.comment") : comment;
+			BackupMeta m = doBackup(job, Trigger.MANUAL, c, who, fb, false, true);
+			job.progress().phase(Lang.get("cytrabackups.phase.migrate_upload"));
+			int kicks = 0;
+			while (!offsite.isBackupUploaded(m.id)) {
+				job.cancel().check();
+				if (!server.isRunning()) throw new java.util.concurrent.CancellationException("server is stopping");
+				if (offsiteProgress.get() == null) {
+					// no sync running: start one; give up after three rounds that ended in an error
+					String err = offsite.lastError();
+					if (kicks >= 3 && !err.isEmpty()) throw new IOException(Lang.get("cytrabackups.migrate.upload_failed", err));
+					kicks++;
+					kickOffsite();
+				}
+				Thread.sleep(250);
+			}
+			String location = OffsiteTargets.location(config);
+			String cmd = importCommand(location, m.id);
+			fb.send(Msg.success("cytrabackups.migrate.exported", m.id, Formatting.bytes(m.totalSize), location).append(" ")
+				.append(Msg.suggestButton("cytrabackups.button.copy_command", cmd, "cytrabackups.hover.copy_command")), false);
+			fb.info("cytrabackups.migrate.next", cmd);
+		});
+	}
+
+	/** New server: the server backups at {@code location} (blank: this server's own), with an [Import] button each. */
+	public void migrateList(String location, Feedback fb) {
+		async(() -> {
+			String loc = location == null || location.isBlank() ? OffsiteTargets.location(config) : location;
+			try (OffsiteTarget target = OffsiteTargets.create(config, services.storage, loc)) {
+				List<OffsiteSync.RemoteBackup> found = offsite.listRemote(target).stream().filter(r -> r.meta().serverScope()).toList();
+				if (found.isEmpty()) {
+					fb.info("cytrabackups.migrate.list_none", target.describe());
+					return;
+				}
+				fb.info(Lang.plural("cytrabackups.migrate.list_title", found.size()), found.size(), target.describe());
+				for (int i = found.size() - 1; i >= 0; i--) {
+					BackupMeta meta = found.get(i).meta();
+					fb.send(Msg.detail("cytrabackups.migrate.list_line", meta.id, Formatting.dateTimeShort(meta.createdAt, zone()),
+						Formatting.bytes(meta.totalSize), meta.minecraftVersion, meta.comment).append(" ")
+						.append(Msg.suggestButton("cytrabackups.button.import", importCommand(loc, meta.id), "cytrabackups.hover.import", meta.id)), false);
+				}
+			} catch (Exception e) {
+				fb.error("cytrabackups.error.offsite", rootMessage(e));
+			}
+		});
+	}
+
+	/**
+	 * New server: downloads the server backup's file list, checks space and versions, then asks for confirmation. On
+	 * confirm the import is queued and the server stops like for a full restore; it is applied on the next start.
+	 */
+	public boolean requestMigrateImport(String location, int id, boolean replaceSettings, CommandSourceStack src) {
+		Feedback fb = Feedback.of(src).and(Feedback.console());
+		if (!ModEnv.isDedicated()) {
+			fb.error("cytrabackups.migrate.dedicated_only");
+			return false;
+		}
+		String who = src.getTextName();
+		String loc = location == null || location.isBlank() ? OffsiteTargets.location(config) : location;
+		return runJob("cytrabackups.job.migrate_prepare", who, fb, false, job -> {
+			CytraConfig cfg = config;
+			Path dir = ServerMigration.workDir(services.storage, id);
+			job.progress().phase(Lang.get("cytrabackups.phase.migrate_prepare", id));
+			ServerMigration.Prepared p;
+			try (OffsiteTarget target = OffsiteTargets.create(cfg, services.storage, loc)) {
+				FileUtil.deleteRecursively(dir);
+				p = ServerMigration.prepare(target, id, dir);
+			}
+			BackupMeta m = p.meta();
+			long free = FileUtil.usableSpace(ModEnv.gameDir());
+			long need = ServerMigration.spaceNeeded(p, cfg.minFreeSpaceMiB * 1024L * 1024L);
+			if (free < need) throw new IOException(Lang.get("cytrabackups.migrate.no_space", Formatting.bytes(free), Formatting.bytes(need)));
+			List<String> lines = new ArrayList<>();
+			lines.add(Lang.get("cytrabackups.migrate.details", m.fileCount, Formatting.bytes(m.totalSize), Formatting.dateTimeShort(m.createdAt, zone()),
+				m.worldFolder.isEmpty() ? "?" : m.worldFolder));
+			String mc = ModEnv.minecraftVersion(), loader = ModEnv.loaderVersion();
+			if (!m.minecraftVersion.equals(mc) || !m.loaderVersion.isEmpty() && !m.loaderVersion.equals(loader)) {
+				lines.add(Lang.get("cytrabackups.migrate.version_warning", m.minecraftVersion, m.loaderVersion.isEmpty() ? "?" : m.loaderVersion, mc, loader));
+			}
+			lines.add(Lang.get(replaceSettings ? "cytrabackups.migrate.settings_replaced" : "cytrabackups.migrate.settings_kept"));
+			lines.add(Lang.get("cytrabackups.migrate.restarts", cfg.restore.countdownSeconds));
+			String details = String.join(" ", lines);
+			server.execute(() -> prompt(src, Lang.get("cytrabackups.migrate.question", id, loc), details,
+				() -> startMigrateImport(loc, id, replaceSettings, who, fb)));
+		});
+	}
+
+	private void startMigrateImport(String location, int id, boolean replaceSettings, String who, Feedback fb) {
+		PendingOperation op = new PendingOperation();
+		op.type = PendingOperation.Type.MIGRATE_IMPORT;
+		op.backupId = id;
+		op.location = location;
+		op.replaceBackupSettings = replaceSettings;
+		op.worldDir = worldDir.toString();
+		op.requestedBy = who;
+		op.requestedAt = System.currentTimeMillis();
+		beginStopCountdown(op, Lang.get("cytrabackups.countdown.migrate", id), fb);
 	}
 
 	/** First line is the summary; further lines are details. */

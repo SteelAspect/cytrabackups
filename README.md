@@ -78,6 +78,9 @@ All commands start with `/cbackup`, or the short alias `/cb` (`/cbackup help` li
 | `reload` | Reload the config file after editing it by hand |
 | `offsite [status\|sync\|list]` | Off-site copies: status, upload now, list what is stored there |
 | `offsite fetch <id>` | Download a backup from the off-site copy so it can be restored here |
+| `migrate export [comment]` | Old server: back up the whole server folder and upload it, to move the server |
+| `migrate list ["location"]` | New server: list the server backups at a location |
+| `migrate import "<location>" <id> [keepBackupSettings\|replaceBackupSettings]` | New server: replace this server with a server backup (applied on the next start) |
 
 ## Off-site copies
 
@@ -94,6 +97,27 @@ Turn off Settings > Off-site > **Keep local copy** to keep backup data only off-
 - Restores, area restores, verify and export download what they need. Restoring a recent backup only downloads the region files that changed since.
 - Cleanup deletes data off-site that no remaining backup uses (with Mirror deletes on).
 - The off-site settings are pinned to where the data is: pointing them somewhere else is refused until they are changed back.
+
+## Moving a server to another host
+
+When a panel host can't transfer a server and there's no shell, copying a big world through your own internet takes hours. Alloy Backups can move the whole server through the off-site copy instead, from datacenter to datacenter. Only data the bucket doesn't have yet is uploaded, so with off-site copies already running that's mostly mods and settings.
+
+1. **Old server:** `/cbackup migrate export`.
+   - It makes a **server backup** of the whole server folder: mods, configs, `server.properties`, the whitelist, ops and ban lists, the world with all dimensions, and other mods' data.
+   - It skips `libraries/`, `versions/`, `.fabric/`, caches, logs and lock files (Settings > Moving the server).
+   - It pins the backup, uploads it and prints the import command.
+2. **New server:**
+   - Install Fabric, Fabric API and Alloy Backups.
+   - Set up the same off-site destination (same bucket, its own prefix).
+   - Run the printed `/cbackup migrate import "<location>" <id>`.
+   - The location is the old server's S3 prefix (or SFTP folder or WebDAV URL), and `/cbackup migrate list "<location>"` shows what's there.
+3. The import checks free space and the Minecraft and Fabric Loader versions, then asks to confirm.
+4. The server stops and applies the move on the next start, before the world loads. Then it stops once more, so the moved mods load on the start after that. A panel with auto-restart does this by itself.
+
+What the import changes:
+- The server's own `config/cytrabackups.json` is kept unless you add `replaceBackupSettings`.
+- Files at the top of the server folder are never removed, such as the panel's server jar.
+- Everything replaced goes to the recycle bin, so `/cbackup rollback` undoes the move.
 
 ## Permissions
 

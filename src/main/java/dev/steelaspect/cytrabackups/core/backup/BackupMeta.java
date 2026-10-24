@@ -13,6 +13,7 @@ public final class BackupMeta {
 	public boolean pinned;
 	/** Partial backups (pre-restore of an area) only contain some files; restoring them never deletes others. */
 	public boolean partial;
+	/** "" for world backups; {@link #SCOPE_SERVER} for backups of the whole server folder (/cbackup migrate). */
 	public String scope = "";
 	public String levelName = "";
 
@@ -28,6 +29,9 @@ public final class BackupMeta {
 	public long referencedStoredBytes;
 
 	public String minecraftVersion = "";
+	/** Server backups: the Fabric Loader version and the world folder name, shown before an import. */
+	public String loaderVersion = "";
+	public String worldFolder = "";
 	public String modVersion = "";
 	public long durationMillis;
 	public String manifestSha256 = "";
@@ -36,6 +40,13 @@ public final class BackupMeta {
 	/** For area backups: the dimension and chunk boxes they cover, so the area can be restored again. */
 	public String areaDimension;
 	public List<ChunkSelection.Box> areaBoxes;
+
+	public static final String SCOPE_SERVER = "server";
+
+	/** A backup of the whole server folder, not of the world: only {@code /cbackup migrate import} applies it. */
+	public boolean serverScope() {
+		return SCOPE_SERVER.equals(scope);
+	}
 
 	public BackupMeta copy() {
 		BackupMeta m = new BackupMeta();
@@ -56,6 +67,8 @@ public final class BackupMeta {
 		m.reusedFiles = reusedFiles;
 		m.referencedStoredBytes = referencedStoredBytes;
 		m.minecraftVersion = minecraftVersion;
+		m.loaderVersion = loaderVersion;
+		m.worldFolder = worldFolder;
 		m.modVersion = modVersion;
 		m.durationMillis = durationMillis;
 		m.manifestSha256 = manifestSha256;

@@ -85,6 +85,15 @@ public final class OffsiteSync {
 		this.uploadedBlobs = loadIndex(dir.resolve("uploaded-blobs.bin"));
 	}
 
+	/** True once backup {@code id} (data and file list) is at the destination. */
+	public synchronized boolean isBackupUploaded(int id) {
+		return queue.uploaded.contains(id);
+	}
+
+	public synchronized String lastError() {
+		return queue.lastError == null ? "" : queue.lastError;
+	}
+
 	public synchronized Queue queue() {
 		return queue;
 	}
@@ -364,7 +373,7 @@ public final class OffsiteSync {
 		return !queue.uploads.isEmpty() || !queue.deleteKeys.isEmpty();
 	}
 
-	static String blobKey(Hash h) {
+	public static String blobKey(Hash h) {
 		String hex = h.hex();
 		return "blobs/" + hex.substring(0, 2) + "/" + hex.substring(2, 4) + "/" + hex;
 	}

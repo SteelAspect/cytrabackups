@@ -6,6 +6,7 @@ import dev.steelaspect.cytrabackups.core.FileUtil;
 import dev.steelaspect.cytrabackups.core.Formatting;
 import dev.steelaspect.cytrabackups.core.Lang;
 import dev.steelaspect.cytrabackups.core.Progress;
+import dev.steelaspect.cytrabackups.core.config.ConfigIO;
 import dev.steelaspect.cytrabackups.core.config.CytraConfig;
 import dev.steelaspect.cytrabackups.core.migrate.ServerMigration;
 import dev.steelaspect.cytrabackups.core.offsite.OffsiteTarget;
@@ -46,6 +47,7 @@ final class MigrationImport {
 			}
 			result.success = true;
 			result.restartNeeded = true;
+			if (op.replaceBackupSettings) keepOwnDestination(cfg, result);
 			FileUtil.deleteRecursively(dir);
 		} catch (Exception e) {
 			result.success = false;
@@ -55,6 +57,23 @@ final class MigrationImport {
 		}
 		result.finishedAt = System.currentTimeMillis();
 		return result;
+	}
+
+	/**
+	 * The old server's backup settings came in, but its off-site destination is the old server's place: this server
+	 * would number its backups from #1 again there and overwrite the old ones. Keep this server's own destination.
+	 */
+	private static void keepOwnDestination(CytraConfig own, RestoreResult result) {
+		Path file = ModEnv.configFile();
+		try {
+			CytraConfig moved = ConfigIO.load(file);
+			moved.offsite = own.offsite;
+			ConfigIO.save(file, moved);
+			result.message += " " + Lang.get("cytrabackups.migrate.kept_destination", OffsiteTargets.location(own));
+		} catch (IOException e) {
+			CytraBackups.LOGGER.error("Alloy Backups: could not put this server's own off-site settings back into {}: {}. Check offsite before the next backup.", file, e.getMessage());
+			result.message += " " + Lang.get("cytrabackups.migrate.kept_destination_failed");
+		}
 	}
 
 	/**

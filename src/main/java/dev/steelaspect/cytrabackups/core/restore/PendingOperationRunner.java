@@ -86,9 +86,18 @@ public final class PendingOperationRunner {
 				case ROLLBACK -> {
 					RestoreRecord target = (op.restoreId == null ? restore.latestUndoable() : restore.record(op.restoreId))
 						.orElseThrow(() -> new IOException("Nothing to roll back"));
-					result.preRestoreBackupId = preRestoreBackup(op, world, null, Lang.get("cytrabackups.restore.comment.rollback", target.restoreId), progress, cancel);
-					RestorePlan plan = restore.planRollback(target, world, progress, cancel);
-					record = restore.execute(plan, world, progress, cancel);
+					RestorePlan plan;
+					if (target.kind == RestoreRecord.Kind.MIGRATE) {
+						// undoing a server move works on the server folder; its recycle bin is the "before" copy
+						Path serverDir = Path.of(target.worldDir);
+						plan = restore.planRollback(target, serverDir, progress, cancel);
+						record = restore.execute(plan, serverDir, restore.storageRoot(), progress, cancel);
+						result.restartNeeded = true;
+					} else {
+						result.preRestoreBackupId = preRestoreBackup(op, world, null, Lang.get("cytrabackups.restore.comment.rollback", target.restoreId), progress, cancel);
+						plan = restore.planRollback(target, world, progress, cancel);
+						record = restore.execute(plan, world, progress, cancel);
+					}
 					restore.markRolledBack(target, record.restoreId);
 					result.message = summary(plan);
 				}

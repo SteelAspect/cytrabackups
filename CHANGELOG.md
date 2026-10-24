@@ -2,6 +2,15 @@
 
 All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1.21.11**, Fabric Loader 0.19.5+, Fabric API, Java 21.
 
+## 1.9.0
+
+**Move a whole server through the off-site copy.**
+
+- `/cbackup migrate export` on the old server makes a **server backup** of the whole server folder (mods, configs, `server.properties`, whitelist/ops/bans, the world, other mods' data) and uploads it. It skips `libraries/`, `versions/`, `.fabric/`, caches, logs and lock files, which you can change in Settings > Moving the server. The world reuses what world backups already uploaded, so mostly mods and settings go up. The backup is pinned.
+- `/cbackup migrate import "<location>" <id>` on the new server applies it. It checks disk space and Minecraft/Fabric versions, then asks to confirm and stops the server. On the next start, before the world loads, it moves the server in, reading straight from the old server's off-site location, then stops once more so the moved mods load. `/cbackup migrate list` shows the server backups at a location.
+- The new server keeps its own Alloy Backups settings unless you add `replaceBackupSettings`. Files at the top of the server folder are never removed, and everything replaced goes to the recycle bin: `/cbackup rollback` undoes the move.
+- Server backups are never used for world restores, area restores, previews or zip exports.
+
 ## 1.8.1
 
 - **Preview button in the area restore screen.** It shows the selected chunks of the backup as a Litematica schematic in their place (shared through Alloy Syncmatica when the server has it), so you can compare before restoring, without typing `/cbackup preview`. Up to 256 chunks. Works with servers on 1.7.0 or newer.

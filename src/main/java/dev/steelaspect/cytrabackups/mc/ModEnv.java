@@ -55,6 +55,11 @@ public final class ModEnv {
 		}
 	}
 
+	public static String loaderVersion() {
+		return FabricLoader.getInstance().getModContainer("fabricloader")
+			.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("");
+	}
+
 	public static String modVersion() {
 		return FabricLoader.getInstance().getModContainer(CytraBackups.MOD_ID)
 			.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("dev");

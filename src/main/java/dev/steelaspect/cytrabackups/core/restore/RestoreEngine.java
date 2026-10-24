@@ -280,11 +280,21 @@ public final class RestoreEngine {
 
 	/** Executes a plan. The world must not be in use. Returns the saved record (with recycle bin location). */
 	public RestoreRecord execute(RestorePlan plan, Path world, Progress progress, CancelToken cancel) throws IOException {
+		return execute(plan, world, null, progress, cancel);
+	}
+
+	/**
+	 * Like {@link #execute(RestorePlan, Path, Progress, CancelToken)}, staging under {@code stagingParent} instead of next
+	 * to the target folder (a server folder on a panel host has no writable parent). It must be on the same disk and
+	 * outside what the plan touches.
+	 */
+	public RestoreRecord execute(RestorePlan plan, Path world, Path stagingParent, Progress progress, CancelToken cancel) throws IOException {
 		recoverInterrupted(msg -> {
 		});
 		String restoreId = newRestoreId(plan.kind(), plan.backupId());
 		Path worldAbs = world.toAbsolutePath().normalize();
-		Path staging = worldAbs.resolveSibling("." + worldAbs.getFileName() + "-cytrabackups-staging-" + restoreId);
+		Path staging = stagingParent != null ? stagingParent.toAbsolutePath().normalize().resolve("staging-" + restoreId)
+			: worldAbs.resolveSibling("." + worldAbs.getFileName() + "-cytrabackups-staging-" + restoreId);
 		Path recycle = recycleRoot.resolve(restoreId);
 		FileUtil.deleteRecursively(staging);
 		Files.createDirectories(staging);

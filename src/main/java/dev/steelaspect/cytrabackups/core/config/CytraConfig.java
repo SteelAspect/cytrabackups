@@ -24,6 +24,7 @@ public final class CytraConfig {
 	public ProgressSettings progress = new ProgressSettings();
 	public DiscordSettings discord = new DiscordSettings();
 	public OffsiteSettings offsite = new OffsiteSettings();
+	public MigrateSettings migrate = new MigrateSettings();
 	public PermissionSettings permissions = new PermissionSettings();
 
 	public static final class CompressionSettings {
@@ -95,6 +96,13 @@ public final class CytraConfig {
 		public boolean onPrune = false;
 		public long lowDiskWarningMiB = 4096;
 		public String failureMention = "";
+	}
+
+	/** Server backups for moving a whole server (/cbackup migrate): what of the server folder they hold. */
+	public static final class MigrateSettings {
+		public List<String> include = new ArrayList<>();
+		public List<String> exclude = new ArrayList<>(List.of("libraries/**", "versions/**", ".fabric/**", ".cache/**", "cache/**", "logs/**",
+			"crash-reports/**", "debug/**", "**/session.lock", "**/*.lock", "**/*.tmp"));
 	}
 
 	public static final class OffsiteSettings {

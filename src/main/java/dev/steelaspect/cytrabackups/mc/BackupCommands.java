@@ -4,6 +4,7 @@ import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.integer;
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.StringArgumentType.greedyString;
+import static com.mojang.brigadier.arguments.StringArgumentType.string;
 import static com.mojang.brigadier.arguments.StringArgumentType.word;
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
@@ -46,6 +47,7 @@ public final class BackupCommands {
 		{"comment <id> [text]", "comment"}, {"pin <id>", "pin"}, {"unpin <id>", "unpin"}, {"delete <id>", "delete"},
 		{"verify <id>", "verify"}, {"export <id>", "export"}, {"import <path> [comment]", "import"}, {"prune [dryrun]", "prune"},
 		{"gc", "gc"}, {"status", "status"}, {"cancel", "cancel"}, {"reload", "reload"}, {"offsite [status|sync|list]", "offsite"}, {"offsite fetch <id>", "fetch"},
+		{"migrate export [comment]", "migrate_export"}, {"migrate list [\"location\"]", "migrate_list"}, {"migrate import \"<location>\" <id> [keepBackupSettings|replaceBackupSettings]", "migrate_import"},
 	};
 
 	private BackupCommands() {
@@ -242,11 +244,35 @@ public final class BackupCommands {
 			.then(literal("fetch").then(argument("id", integer(1))
 				.executes(c -> started(manager().offsiteFetch(getInteger(c, "id"), c.getSource().getTextName(), Feedback.of(c.getSource())), c)))));
 
+		// Moving a whole server through the off-site copy: export on the old server, import on the new one.
+		root.then(literal("migrate").requires(Perms.require(Perms.ADMIN))
+			.then(literal("export")
+				.executes(c -> started(manager().migrateExport("", c.getSource().getTextName(), Feedback.of(c.getSource()).and(Feedback.console())), c))
+				.then(argument("comment", greedyString()).executes(c -> started(manager().migrateExport(getString(c, "comment"),
+					c.getSource().getTextName(), Feedback.of(c.getSource()).and(Feedback.console())), c))))
+			.then(literal("list")
+				.executes(c -> {
+					manager().migrateList("", Feedback.of(c.getSource()));
+					return 1;
+				})
+				.then(argument("location", string()).executes(c -> {
+					manager().migrateList(getString(c, "location"), Feedback.of(c.getSource()));
+					return 1;
+				})))
+			.then(literal("import").then(argument("location", string()).then(argument("id", integer(1))
+				.executes(c -> migrateImport(c, false))
+				.then(literal("keepBackupSettings").executes(c -> migrateImport(c, false)))
+				.then(literal("replaceBackupSettings").executes(c -> migrateImport(c, true)))))));
+
 		root.then(literal("help").executes(c -> help(c.getSource())));
 		root.executes(c -> help(c.getSource()));
 
 		LiteralCommandNode<CommandSourceStack> node = dispatcher.register(root);
 		dispatcher.register(literal(ALIAS).requires(node.getRequirement()).executes(c -> help(c.getSource())).redirect(node));
+	}
+
+	private static int migrateImport(CommandContext<CommandSourceStack> c, boolean replaceSettings) {
+		return started(manager().requestMigrateImport(getString(c, "location"), getInteger(c, "id"), replaceSettings, c.getSource()), c);
 	}
 
 	/** Reply for commands that start a background job; the job reports its own result. */

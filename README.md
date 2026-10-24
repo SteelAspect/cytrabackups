@@ -113,6 +113,7 @@ When a panel host can't transfer a server and there's no shell, copying a big wo
    - The location is the old server's S3 prefix (or SFTP folder or WebDAV URL), and `/cbackup migrate list "<location>"` shows what's there.
 3. The import checks free space and the Minecraft and Fabric Loader versions, then asks to confirm.
 4. The server stops and applies the move on the next start, before the world loads. Then it stops once more, so the moved mods load on the start after that. A panel with auto-restart does this by itself.
+5. Panel hosts often rewrite `server.properties` on each start (port, world name). If the new server starts a fresh `world`, set the old server's world folder name (the import shows it) as the level name in the panel, or in `server.properties`.
 
 What the import changes:
 - The server's own `config/cytrabackups.json` is kept unless you add `replaceBackupSettings`. Even then the new server keeps its own off-site destination, so the old server's backups in the bucket are never overwritten.

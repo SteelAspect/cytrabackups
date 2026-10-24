@@ -708,7 +708,7 @@
 	"cytrabackups.hover.copy_command": "Put the import command in the chat box, to copy it.",
 	"cytrabackups.button.import": "Import",
 	"cytrabackups.hover.import": "Replace this server with server backup #%s (asks first).",
-	"cytrabackups.migrate.question": "Replace this server with server backup #%s from %s?",
+	"cytrabackups.migrate.question": "Replace this server with server backup #%s from %s",
 	"cytrabackups.migrate.details": "%s files, %s, made %s, world folder \"%s\". Files this server has that the backup doesn't are removed (top-level files stay), and everything replaced goes to the recycle bin: /cbackup rollback undoes the move.",
 	"cytrabackups.migrate.version_warning": "Warning: the old server ran Minecraft %s with Fabric Loader %s, this one runs %s with %s. Match them on the panel first.",
 	"cytrabackups.migrate.settings_kept": "This server keeps its own Alloy Backups settings (add replaceBackupSettings to take the old server's).",

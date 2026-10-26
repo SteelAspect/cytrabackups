@@ -130,6 +130,9 @@ public class CytraBackupsClientGameTest implements FabricClientGameTest {
 			ctx.waitTick();
 			ctx.getInput().releaseMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 			ctx.waitTicks(2);
+			ctx.waitTicks(2);
+			String boxes = ctx.computeOnClient(mc -> ((ChunkSelectorScreen) mc.screen).coordsForTest());
+			if (boxes.split(",").length != 4 || boxes.contains(",,") || boxes.startsWith(",")) throw new AssertionError("the coordinate boxes should show the selection: " + boxes);
 			ctx.takeScreenshot("cytrabackups-3-chunk-selector");
 			// Preview: the server builds a schematic of the selected chunks (saved in previews/ without Alloy Syncmatica)
 			ModMenuClientGameTest.click(ctx, "Preview");

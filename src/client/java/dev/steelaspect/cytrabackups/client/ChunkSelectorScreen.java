@@ -62,7 +62,9 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	private int cell = 8;
 	private Integer selX1, selZ1, selX2, selZ2;
 	private boolean dragging;
-	private final TextField x1Box = box("x1"), z1Box = box("z1"), x2Box = box("x2"), z2Box = box("z2");
+	/** What the four coordinate boxes hold: a box shows its getter whenever it isn't focused, so the text lives here. */
+	private final String[] coords = {"", "", "", ""};
+	private final TextField x1Box = box("x1", 0), z1Box = box("z1", 1), x2Box = box("x2", 2), z2Box = box("z2", 3);
 	private final List<String> dimensions = new ArrayList<>();
 	private String dimension; // dimension to restore in; the map is only drawn for the one the player is in
 	private int radius = 2;
@@ -121,8 +123,8 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		return b;
 	}
 
-	private static TextField box(String hint) {
-		return new TextField(() -> "", v -> {}).live().maxLength(8).placeholder(Component.literal(hint))
+	private TextField box(String hint, int i) {
+		return new TextField(() -> coords[i], v -> coords[i] = v).live().maxLength(8).placeholder(Component.literal(hint))
 			.validator(t -> t.isEmpty() || t.matches("-?\\d+"), Component.translatable("cytrabackups.gui.area.bad_coords"));
 	}
 
@@ -253,10 +255,19 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	}
 
 	private void syncBoxes() {
-		x1Box.setText(selX1 == null ? "" : String.valueOf(Math.min(selX1, selX2)));
-		z1Box.setText(selZ1 == null ? "" : String.valueOf(Math.min(selZ1, selZ2)));
-		x2Box.setText(selX2 == null ? "" : String.valueOf(Math.max(selX1, selX2)));
-		z2Box.setText(selZ2 == null ? "" : String.valueOf(Math.max(selZ1, selZ2)));
+		coords[0] = selX1 == null ? "" : String.valueOf(Math.min(selX1, selX2));
+		coords[1] = selZ1 == null ? "" : String.valueOf(Math.min(selZ1, selZ2));
+		coords[2] = selX2 == null ? "" : String.valueOf(Math.max(selX1, selX2));
+		coords[3] = selZ2 == null ? "" : String.valueOf(Math.max(selZ1, selZ2));
+		x1Box.setText(coords[0]);
+		z1Box.setText(coords[1]);
+		x2Box.setText(coords[2]);
+		z2Box.setText(coords[3]);
+	}
+
+	/** For tests: what the coordinate boxes show (x1, z1, x2, z2). */
+	public String coordsForTest() {
+		return x1Box.text() + "," + z1Box.text() + "," + x2Box.text() + "," + z2Box.text();
 	}
 
 	private void fromBoxes() {

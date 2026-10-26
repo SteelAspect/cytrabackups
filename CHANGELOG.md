@@ -10,6 +10,7 @@ All notable changes to Alloy Backups (formerly CytraBackups). Minecraft Java **1
 - `/cbackup migrate import "<location>" <id>` on the new server applies it. It checks disk space and Minecraft/Fabric versions, then asks to confirm and stops the server. On the next start, before the world loads, it moves the server in, reading straight from the old server's off-site location, then stops once more so the moved mods load. `/cbackup migrate list` shows the server backups at a location.
 - The new server keeps its own Alloy Backups settings unless you add `replaceBackupSettings`. Even then it keeps its own off-site destination, and an import from the new server's own location is refused, so the old server's backups are never overwritten. Undoing a server move needs the admin permission. Files at the top of the server folder are never removed, and everything replaced goes to the recycle bin: `/cbackup rollback` undoes the move.
 - Server backups are never used for world restores, area restores, previews or zip exports.
+- Fix: the x1/z1/x2/z2 boxes in the area restore screen now show the selected area (they stayed empty since 1.8.0).
 - Restores and imports download the pieces of big files (mod databases and the like) 8 at a time instead of one by one, much faster from the off-site copy.
 
 ## 1.8.1

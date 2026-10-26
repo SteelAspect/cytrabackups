@@ -132,7 +132,7 @@ public final class BackupCommands {
 		var radiusArg = literal("radius").then(argument("radius", integer(0, 32)).executes(c -> {
 			ServerPlayer p = c.getSource().getPlayerOrException();
 			ChunkPos cp = p.chunkPosition();
-			return chunks(c, ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), p.level());
+			return chunks(c, ChunkSelection.radius(cp.x(), cp.z(), getInteger(c, "radius")), p.level());
 		}));
 		root.then(literal("restore").requires(Perms.require(Perms.RESTORE))
 			.then(id("id")
@@ -153,7 +153,7 @@ public final class BackupCommands {
 				.then(literal("radius").then(argument("radius", integer(0, 7)).executes(c -> {
 					ServerPlayer p = c.getSource().getPlayerOrException();
 					ChunkPos cp = p.chunkPosition();
-					manager().requestPreview(getInteger(c, "id"), p.level(), ChunkSelection.radius(cp.x, cp.z, getInteger(c, "radius")), c.getSource());
+					manager().requestPreview(getInteger(c, "id"), p.level(), ChunkSelection.radius(cp.x(), cp.z(), getInteger(c, "radius")), c.getSource());
 					return 1;
 				})))
 				.then(literal("chunks").then(argument("dimension", DimensionArgument.dimension())

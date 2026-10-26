@@ -1,4 +1,4 @@
-accessWidener	v2	named
+accessWidener	v2	official
 
 # Live partial restore: inspect chunk/entity/POI caches so chunks are only rewritten while fully unloaded.
 accessible	field	net/minecraft/server/level/ChunkMap	pendingUnloads	Lit/unimi/dsi/fastutil/longs/Long2ObjectLinkedOpenHashMap;

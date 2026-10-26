@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 }
 
 version = project.mod_version
@@ -11,7 +11,6 @@ base {
 
 repositories {
 	mavenCentral()
-	maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
 	mavenLocal {
 		content { includeModule 'dev.steelaspect', 'alloy-ui' }
 	}
@@ -52,22 +51,18 @@ fabricApi {
 
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings loom.officialMojangMappings()
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	// Permissions (LuckPerms etc.) with op-level fallback. Bundled (jar-in-jar).
-	modImplementation "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
+	implementation "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
 	include "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
 
 	// Alloy UI: the Nocturne theme and widgets for the client menus (jar-in-jar)
-	modImplementation "dev.steelaspect:alloy-ui:${project.alloyui_version}"
+	implementation "dev.steelaspect:alloy-ui:${project.alloyui_version}"
 	include "dev.steelaspect:alloy-ui:${project.alloyui_version}"
 
-	// Optional: Mod Menu config button (client). Loaded in dev runs and client game tests.
-	modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
-	modLocalRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
-	modGametestCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+	// No Mod Menu on 26.3 (its builds skip 26.3), so no config button there.
 
 	// Pure-Java zstd (no native code). Bundled (jar-in-jar).
 	implementation "io.airlift:aircompressor:${project.aircompressor_version}"
@@ -84,9 +79,9 @@ dependencies {
 
 	// Optional: ./gradlew runGameTest -PwithSyncmatica loads a local Cytra Syncmatica jar (private, never committed)
 	// so the preview test also checks sharing.
-	def syncmaticaJar = file("${System.getProperty('user.home')}/Downloads/cytra-syncmatica-1.4.0+1.21.11.jar")
+	def syncmaticaJar = file("${System.getProperty('user.home')}/Downloads/cytra-syncmatica-1.5.0+26.3.jar")
 	if (project.hasProperty('withSyncmatica') && syncmaticaJar.exists()) {
-		modLocalRuntime files(syncmaticaJar)
+		localRuntime files(syncmaticaJar)
 	}
 
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
@@ -129,14 +124,14 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 21
+	it.options.release = 25
 	it.options.encoding = "UTF-8"
 }
 
 java {
 	withSourcesJar()
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 test {

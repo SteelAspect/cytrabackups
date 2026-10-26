@@ -141,11 +141,11 @@ final class SettingsScreen extends AlloyScreen {
 	@Override
 	public void onClose() {
 		if (edits.isEmpty()) {
-			minecraft.setScreen(parent);
+			minecraft.gui.setScreen(parent);
 			return;
 		}
 		Dialogs.confirm(Component.translatable("cytrabackups.gui.discard.title", edits.size()), Component.translatable("cytrabackups.gui.discard.message"),
-			Component.translatable("cytrabackups.gui.discard"), true, () -> minecraft.setScreen(parent));
+			Component.translatable("cytrabackups.gui.discard"), true, () -> minecraft.gui.setScreen(parent));
 	}
 
 	@Override

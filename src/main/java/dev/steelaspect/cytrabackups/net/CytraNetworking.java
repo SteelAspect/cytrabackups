@@ -29,13 +29,13 @@ public final class CytraNetworking {
 	}
 
 	public static void registerPayloadTypes() {
-		PayloadTypeRegistry.playC2S().register(RequestPayload.TYPE, RequestPayload.CODEC);
-		PayloadTypeRegistry.playC2S().register(CommandPayload.TYPE, CommandPayload.CODEC);
-		PayloadTypeRegistry.playC2S().register(ConfigSavePayload.TYPE, ConfigSavePayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(BackupListPayload.TYPE, BackupListPayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(MessagePayload.TYPE, MessagePayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(PromptPayload.TYPE, PromptPayload.CODEC);
-		PayloadTypeRegistry.playS2C().register(ConfigPayload.TYPE, ConfigPayload.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RequestPayload.TYPE, RequestPayload.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(CommandPayload.TYPE, CommandPayload.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(ConfigSavePayload.TYPE, ConfigSavePayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(BackupListPayload.TYPE, BackupListPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(MessagePayload.TYPE, MessagePayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(PromptPayload.TYPE, PromptPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(ConfigPayload.TYPE, ConfigPayload.CODEC);
 	}
 
 	public static void registerServerHandlers() {

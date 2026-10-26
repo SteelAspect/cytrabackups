@@ -21,7 +21,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -39,7 +39,7 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 /**
  * Map-style chunk selector. Chunks the client has loaded are painted once into a small texture from their top-block
@@ -78,8 +78,8 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.player != null) {
 			ChunkPos cp = mc.player.chunkPosition();
-			centerX = cp.x;
-			centerZ = cp.z;
+			centerX = cp.x();
+			centerZ = cp.z();
 		}
 		String here = currentDimension(mc);
 		dimension = here;
@@ -142,12 +142,12 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		if (minecraft.player == null) return;
 		ChunkPos cp = minecraft.player.chunkPosition();
 		dimension = currentDimension(minecraft);
-		selX1 = cp.x - radius;
-		selZ1 = cp.z - radius;
-		selX2 = cp.x + radius;
-		selZ2 = cp.z + radius;
-		centerX = cp.x;
-		centerZ = cp.z;
+		selX1 = cp.x() - radius;
+		selZ1 = cp.z() - radius;
+		selX2 = cp.x() + radius;
+		selZ2 = cp.z() + radius;
+		centerX = cp.x();
+		centerZ = cp.z();
 		syncBoxes();
 	}
 
@@ -157,8 +157,8 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 			cx = Math.min(selX1, selX2);
 			cz = Math.min(selZ1, selZ2);
 		} else if (minecraft.player != null) {
-			cx = minecraft.player.chunkPosition().x;
-			cz = minecraft.player.chunkPosition().z;
+			cx = minecraft.player.chunkPosition().x();
+			cz = minecraft.player.chunkPosition().z();
 		} else {
 			return;
 		}
@@ -208,7 +208,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 
 	@Override
 	protected boolean canvasClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (event.button() != 0 || !inGrid(event.x(), event.y())) return false;
+		if (event.button() != InputConstants.MOUSE_BUTTON_LEFT || !inGrid(event.x(), event.y())) return false;
 		selX1 = selX2 = chunkAtX(event.x());
 		selZ1 = selZ2 = chunkAtZ(event.y());
 		dragging = true;
@@ -241,10 +241,10 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	protected boolean canvasKeyPressed(KeyEvent event) {
 		int step = 4;
 		switch (event.key()) {
-			case GLFW.GLFW_KEY_LEFT -> centerX -= step;
-			case GLFW.GLFW_KEY_RIGHT -> centerX += step;
-			case GLFW.GLFW_KEY_UP -> centerZ -= step;
-			case GLFW.GLFW_KEY_DOWN -> centerZ += step;
+			case InputConstants.KEY_LEFT -> centerX -= step;
+			case InputConstants.KEY_RIGHT -> centerX += step;
+			case InputConstants.KEY_UP -> centerZ -= step;
+			case InputConstants.KEY_DOWN -> centerZ += step;
 			default -> {
 				return false;
 			}
@@ -342,8 +342,8 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		// Same window the client keeps chunks for (ClientChunkCache storage range), capped for the texture size.
 		int radius = Math.min(MAX_RADIUS, Math.max(2, minecraft.options.getEffectiveRenderDistance()) + 3);
 		ChunkPos cp = minecraft.player.chunkPosition();
-		originX = cp.x - radius;
-		originZ = cp.z - radius;
+		originX = cp.x() - radius;
+		originZ = cp.z() - radius;
 		span = 2 * radius + 1;
 		map = new DynamicTexture(() -> "cytrabackups chunk selector map", span * SAMPLES, span * SAMPLES, true);
 		minecraft.getTextureManager().register(MAP_TEXTURE, map);
@@ -360,7 +360,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 		for (int dz = 0; dz < span && budget > 0; dz++) {
 			for (int dx = 0; dx < span && budget > 0; dx++) {
 				int cx = originX + dx, cz = originZ + dz;
-				long key = ChunkPos.asLong(cx, cz);
+				long key = ChunkPos.pack(cx, cz);
 				if (painted.contains(key)) continue;
 				LevelChunk chunk = level.getChunkSource().getChunk(cx, cz, ChunkStatus.FULL, false);
 				if (chunk == null) continue;
@@ -425,7 +425,7 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 	}
 
 	@Override
-	protected void renderCanvas(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+	protected void renderCanvas(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
 		Theme t = ThemeManager.get();
 		Draw.heading(g, title, MARGIN + 2, 8, t.color("text"));
 		ensureMap();
@@ -453,12 +453,12 @@ public final class ChunkSelectorScreen extends AlloyScreen {
 			int sx2 = Math.min(right, left + (x2 - startX + 1) * cell), sz2 = Math.min(bottom, top + (z2 - startZ + 1) * cell);
 			if (sx2 > sx1 && sz2 > sz1) {
 				g.fill(sx1, sz1, sx2, sz2, Draw.withAlpha(t.color("accent"), 0.3f));
-				g.renderOutline(sx1, sz1, sx2 - sx1, sz2 - sz1, t.color("accent"));
+				g.outline(sx1, sz1, sx2 - sx1, sz2 - sz1, t.color("accent"));
 			}
 		}
 		if (minecraft.player != null && showingMap()) {
 			ChunkPos pc = minecraft.player.chunkPosition();
-			int px = left + (pc.x - startX) * cell + cell / 2, py = top + (pc.z - startZ) * cell + cell / 2;
+			int px = left + (pc.x() - startX) * cell + cell / 2, py = top + (pc.z() - startZ) * cell + cell / 2;
 			if (px >= left && py >= top && px < right && py < bottom) {
 				g.fill(px - 3, py - 3, px + 3, py + 3, t.color("bg"));
 				g.fill(px - 2, py - 2, px + 2, py + 2, t.color("text"));

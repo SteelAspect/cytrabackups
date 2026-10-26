@@ -19,9 +19,6 @@
 		],
 		"client": [
 			"dev.steelaspect.cytrabackups.client.CytraBackupsClient"
-		],
-		"modmenu": [
-			"dev.steelaspect.cytrabackups.client.ModMenuIntegration"
 		]
 	},
 	"mixins": [
@@ -29,10 +26,10 @@
 	],
 	"accessWidener": "cytrabackups.accesswidener",
 	"depends": {
-		"fabricloader": ">=0.19.5",
-		"minecraft": "~1.21.11",
-		"java": ">=21",
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
 		"fabric-api": "*",
-		"alloy-ui": ">=1.3.0 <2.0.0"
+		"alloy-ui": ">=1.4.0 <2.0.0"
 	}
 }

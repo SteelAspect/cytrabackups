@@ -30,7 +30,7 @@ public class GuiPreviewClientGameTest implements FabricClientGameTest {
 			ctx.getInput().resizeWindow(setup.width(), setup.height());
 			ctx.runOnClient(mc -> {
 				mc.options.guiScale().set(setup.scale());
-				mc.resizeDisplay();
+				mc.resizeGui();
 			});
 			String suffix = "-" + setup.name();
 			shot(ctx, 0, 11, "gui-1-backups" + suffix);

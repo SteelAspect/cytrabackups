@@ -68,7 +68,7 @@ public class CytraBackupsGameTest {
 		return null;
 	}
 
-	@GameTest(maxTicks = 400_000) // the test server ticks unthrottled while we wait on real-time IO
+	@GameTest(maxTicks = 20_000_000) // the test server ticks unthrottled while we wait on real-time IO
 	public void backupRestoreRoundTrip(GameTestHelper helper) {
 		BackupManager m = BackupManager.get();
 		ServerLevel level = helper.getLevel();
@@ -100,7 +100,7 @@ public class CytraBackupsGameTest {
 			})
 			.thenExecute(() -> {
 				try {
-					ManifestEntry e = m.services().repo.loadManifest(ids[0]).get("region/" + RegionFiles.regionFileName(CX >> 5, CZ >> 5));
+					ManifestEntry e = m.services().repo.loadManifest(ids[0]).get("dimensions/minecraft/overworld/region/" + RegionFiles.regionFileName(CX >> 5, CZ >> 5));
 					helper.assertTrue(e instanceof RegionEntry r && r.unpacked() && r.chunks().stream().anyMatch(ChunkRef::unpacked),
 						"backup A should store the region's chunks as recompressed NBT: " + e);
 				} catch (java.io.IOException ex) {
@@ -217,8 +217,12 @@ public class CytraBackupsGameTest {
 					int bits = Math.max(2, 32 - Integer.numberOfLeadingZeros(palette.size() - 1));
 					int index = ((pos.getY() - minY) * sz + 9) * sx + 3;
 					int value = dev.steelaspect.cytrabackups.mc.BackupPreview.unpack(states, bits, index);
-					String name = palette.getCompoundOrEmpty(value).getStringOr("Name", "");
-					helper.assertTrue(name.equals("minecraft:gold_block"), "the preview should show the backup's gold block, got " + name);
+					// 26.x writes block states as {id:...}; older versions used {Name:...}
+					CompoundTag entry = palette.getCompoundOrEmpty(value);
+					String name = entry.getStringOr("id", entry.getStringOr("Name", ""));
+					helper.assertTrue(name.equals("minecraft:gold_block"), "the preview should show the backup's gold block, got " + name
+						+ " (value " + value + ", palette " + palette + ", minY " + minY + ", size " + sx + "x" + sy + "x" + sz + ", description "
+						+ root.getCompoundOrEmpty("Metadata").getStringOr("Description", "") + ")");
 				} catch (java.io.IOException e) {
 					throw new RuntimeException(e);
 				}
@@ -234,13 +238,13 @@ public class CytraBackupsGameTest {
 		helper.assertTrue(spread > 2, "holder spread should exceed the old view distance + 2 guess, got " + spread);
 		helper.startSequence()
 			.thenExecute(() -> level.getChunkSource().addTicketWithRadius(TicketType.FORCED, c, 2))
-			.thenWaitUntil(() -> helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread, c.z, c.x + spread, c.z)) == 1,
+			.thenWaitUntil(() -> helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x() + spread, c.z(), c.x() + spread, c.z())) == 1,
 				"a holder should exist " + spread + " chunks from the ticket"))
 			.thenIdle(20)
 			.thenExecute(() -> {
-				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread, c.z - spread, c.x + spread, c.z + spread)) == 2 * spread + 1,
+				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x() + spread, c.z() - spread, c.x() + spread, c.z() + spread)) == 2 * spread + 1,
 					"every chunk " + spread + " away should have a holder");
-				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x + spread + 1, c.z - spread - 1, c.x + spread + 1, c.z + spread + 1)) == 0,
+				helper.assertTrue(LiveChunkRestore.countLoaded(level, ChunkSelection.box(c.x() + spread + 1, c.z() - spread - 1, c.x() + spread + 1, c.z() + spread + 1)) == 0,
 					"no chunk " + (spread + 1) + " away should have a holder");
 				org.slf4j.LoggerFactory.getLogger("Alloy Backups-GameTest").info("Chunk holders reach {} chunks beyond a player's view distance", spread);
 				level.getChunkSource().removeTicketWithRadius(TicketType.FORCED, c, 2);
@@ -253,7 +257,7 @@ public class CytraBackupsGameTest {
 		try {
 			dev.steelaspect.cytrabackups.core.FileUtil.deleteRecursively(scratch);
 			Files.createDirectories(scratch);
-			String rel = "region/" + RegionFiles.regionFileName(Math.floorDiv(CX, 32), Math.floorDiv(CZ, 32));
+			String rel = "dimensions/minecraft/overworld/region/" + RegionFiles.regionFileName(Math.floorDiv(CX, 32), Math.floorDiv(CZ, 32));
 
 			RestoreResult r = apply(m, scratch, PendingOperation.Type.FULL_RESTORE, idB);
 			if (!r.success) return "restore of B failed: " + r.message;
@@ -294,6 +298,15 @@ public class CytraBackupsGameTest {
 		return r;
 	}
 
+	/** A palette entry: a compound with "Name" or, in newer formats, the state as a plain string. */
+	private static String paletteName(ListTag palette, int i) {
+		net.minecraft.nbt.Tag t = palette.get(i);
+		if (t instanceof CompoundTag c) return c.getStringOr("id", c.getStringOr("Name", "? " + c));
+		String str = t.asString().orElse("? " + t);
+		int bracket = str.indexOf('[');
+		return bracket < 0 ? str : str.substring(0, bracket);
+	}
+
 	/** Reads the block name at P from a region file by decoding the chunk NBT and its paletted block storage. */
 	static String blockAt(Path regionFile) throws Exception {
 		int index = RegionFiles.index(CX, CZ);
@@ -310,14 +323,14 @@ public class CytraBackupsGameTest {
 				if (section.getByteOr("Y", Byte.MIN_VALUE) != (byte) (P.getY() >> 4)) continue;
 				CompoundTag states = section.getCompoundOrEmpty("block_states");
 				ListTag palette = states.getListOrEmpty("palette");
-				if (palette.size() == 1) return palette.getCompoundOrEmpty(0).getStringOr("Name", "?");
+				if (palette.size() == 1) return paletteName(palette, 0);
 				long[] data = states.getLongArray("data").orElse(new long[0]);
 				int bits = Math.max(4, 32 - Integer.numberOfLeadingZeros(palette.size() - 1));
 				int perLong = 64 / bits;
 				int idx = ((P.getY() & 15) << 8) | ((P.getZ() & 15) << 4) | (P.getX() & 15);
 				long word = data[idx / perLong];
 				int value = (int) ((word >>> ((idx % perLong) * bits)) & ((1L << bits) - 1));
-				return palette.getCompoundOrEmpty(value).getStringOr("Name", "?");
+				return paletteName(palette, value);
 			}
 			return "minecraft:air (no section)";
 		}

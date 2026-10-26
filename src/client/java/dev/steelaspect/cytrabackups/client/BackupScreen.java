@@ -47,7 +47,7 @@ public final class BackupScreen extends AlloyScreen {
 		frame.tabs(new Tabs(() -> List.of(Component.translatable("cytrabackups.gui.tab.backups"), Component.translatable("cytrabackups.gui.tab.restore"),
 			Component.translatable("cytrabackups.gui.tab.tools")), () -> lastTab, this::selectTab));
 		frame.bottom(new LogPanel(this::suggest));
-		frame.button(button("cytrabackups.gui.settings", "cytrabackups.gui.settings.tooltip", () -> minecraft.setScreen(new SettingsScreen(this)),
+		frame.button(button("cytrabackups.gui.settings", "cytrabackups.gui.settings.tooltip", () -> minecraft.gui.setScreen(new SettingsScreen(this)),
 			() -> can(BackupListPayload.CAN_ADMIN)));
 		frame.button(button("cytrabackups.gui.refresh", "cytrabackups.gui.refresh.tooltip", ClientState::requestList, () -> true));
 		frame.button(new Button(CommonComponents.GUI_DONE, this::onClose));
@@ -247,7 +247,7 @@ public final class BackupScreen extends AlloyScreen {
 				BackupListPayload.Entry e = selected();
 				return List.of(tr(e != null && e.partial() ? "cytrabackups.gui.restore.area_tooltip" : "cytrabackups.gui.restore.tooltip"));
 			});
-			action("cytrabackups.gui.area", "cytrabackups.gui.area.tooltip", () -> minecraft.setScreen(new ChunkSelectorScreen(BackupScreen.this, selectedId)),
+			action("cytrabackups.gui.area", "cytrabackups.gui.area.tooltip", () -> minecraft.gui.setScreen(new ChunkSelectorScreen(BackupScreen.this, selectedId)),
 				() -> sel.getAsBoolean() && can(BackupListPayload.CAN_RESTORE));
 			action("cytrabackups.gui.verify", "cytrabackups.gui.verify.tooltip", () -> runOnSelected("verify"), () -> sel.getAsBoolean() && can(BackupListPayload.CAN_VERIFY));
 			action("cytrabackups.gui.export", "cytrabackups.gui.export.tooltip", () -> runOnSelected("export"),
@@ -384,7 +384,7 @@ public final class BackupScreen extends AlloyScreen {
 
 		@Override
 		public boolean mouseClicked(UiContext ctx, double mx, double my, int button) {
-			if (button != 0 || !contains(mx, my) || !ctx.inClip(mx, my)) return false;
+			if (button != com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT || !contains(mx, my) || !ctx.inClip(mx, my)) return false;
 			long now = System.currentTimeMillis();
 			boolean doubleClick = lastClickId == backup.id() && now - lastClick < 400;
 			lastClick = now;

@@ -103,15 +103,15 @@ public final class LiveChunkRestore {
 		int range = holderRange(viewDistance);
 		for (ServerPlayer p : level.players()) {
 			ChunkPos cp = p.chunkPosition();
-			int d = distanceToSelection(sel, cp.x, cp.z);
+			int d = distanceToSelection(sel, cp.x(), cp.z());
 			if (d <= range) {
 				return Safety.no(Lang.get("cytrabackups.live.player_near", p.getGameProfile().name(), d, range + 1, (range + 1) * 16));
 			}
 		}
 		LongSet forced = level.getForceLoadedChunks();
 		for (long f : forced) {
-			ChunkPos cp = new ChunkPos(f);
-			if (distanceToSelection(sel, cp.x, cp.z) <= 2) return Safety.no(Lang.get("cytrabackups.live.forceloaded", cp.x, cp.z));
+			ChunkPos cp = ChunkPos.unpack(f);
+			if (distanceToSelection(sel, cp.x(), cp.z()) <= 2) return Safety.no(Lang.get("cytrabackups.live.forceloaded", cp.x(), cp.z()));
 		}
 		return Safety.ok();
 	}
@@ -124,7 +124,7 @@ public final class LiveChunkRestore {
 		for (ChunkSelection.Box b : sel.boxes()) {
 			for (int x = b.minX(); x <= b.maxX(); x++) {
 				for (int z = b.minZ(); z <= b.maxZ(); z++) {
-					long k = ChunkPos.asLong(x, z);
+					long k = ChunkPos.pack(x, z);
 					if (cm.getUpdatingChunkIfPresent(k) != null || cm.getVisibleChunkIfPresent(k) != null || cm.pendingUnloads.containsKey(k)
 						|| em.chunkLoadStatuses.containsKey(k) || em.chunksToUnload.contains(k)
 						|| em.sectionStorage.getExistingSectionsInChunk(k).findAny().isPresent()) {
@@ -202,7 +202,7 @@ public final class LiveChunkRestore {
 		if (version == null) throw new IOException("Chunk " + pos + " uses unknown compression " + (type & 0x7F));
 		InputStream raw;
 		if (external) {
-			ManifestEntry mcc = manifest.get(dir + "/" + RegionFiles.externalChunkFileName(pos.x, pos.z));
+			ManifestEntry mcc = manifest.get(dir + "/" + RegionFiles.externalChunkFileName(pos.x(), pos.z()));
 			if (!(mcc instanceof FileEntry f)) throw new IOException("External chunk file for " + pos + " is missing from the backup");
 			ByteArrayOutputStream bos = new ByteArrayOutputStream();
 			for (BlobRef piece : f.pieces()) bos.write(blobs.read(piece.hash()));
@@ -228,7 +228,7 @@ public final class LiveChunkRestore {
 		SectionStorage<?, ?> poiSections = poi;
 		StructureCheck structures = level.structureCheck;
 		for (ChunkPos pos : touched) {
-			long k = pos.toLong();
+			long k = pos.pack();
 			cm.chunkTypeCache.remove(k);
 			// structure-start lookups for these chunks are re-read from the (restored) chunk data on next use
 			structures.loadedChunks.remove(k);
@@ -241,7 +241,7 @@ public final class LiveChunkRestore {
 			poiSections.dirtyChunks.remove(k);
 			poi.loadedChunks.remove(k);
 			for (int y = level.getMinSectionY(); y <= level.getMaxSectionY(); y++) {
-				long sk = SectionPos.asLong(pos.x, y, pos.z);
+				long sk = SectionPos.asLong(pos.x(), y, pos.z());
 				poiSections.storage.remove(sk);
 				poiSections.onSectionLoad(sk);
 			}

@@ -21,7 +21,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 /** The Nocturne dialogs of Alloy Backups: server confirmations, small text forms and plain notices. */
 public final class Dialogs {
@@ -39,11 +39,11 @@ public final class Dialogs {
 	static void show(Widget dialog) {
 		Minecraft mc = Minecraft.getInstance();
 		AlloyScreen host;
-		if (mc.screen instanceof AlloyScreen a) {
+		if (mc.gui.screen() instanceof AlloyScreen a) {
 			host = a;
 		} else {
-			host = new HostScreen(mc.screen);
-			mc.setScreen(host);
+			host = new HostScreen(mc.gui.screen());
+			mc.gui.setScreen(host);
 		}
 		open = dialog;
 		host.openOverlay(dialog, true);
@@ -91,7 +91,7 @@ public final class Dialogs {
 	}
 
 	private static void close(@Nullable Widget d) {
-		if (d != null && Minecraft.getInstance().screen instanceof AlloyScreen a) a.closeOverlay(d);
+		if (d != null && Minecraft.getInstance().gui.screen() instanceof AlloyScreen a) a.closeOverlay(d);
 	}
 
 	/** A dialog that stays findable by tests while it is open. */
@@ -184,7 +184,7 @@ public final class Dialogs {
 		@Override
 		public boolean keyPressed(UiContext ctx, KeyEvent e) {
 			int k = e.key();
-			if (k == GLFW.GLFW_KEY_ENTER || k == GLFW.GLFW_KEY_KP_ENTER || k == GLFW.GLFW_KEY_ESCAPE) {
+			if (k == InputConstants.KEY_RETURN || k == InputConstants.KEY_NUMPADENTER || k == InputConstants.KEY_ESCAPE) {
 				close(this);
 				return true;
 			}

@@ -38,7 +38,7 @@ final class ProgressDisplay {
 		}
 		String text = line(job);
 		if (cfg.progress.bossBar) {
-			if (bar == null) bar = new ServerBossEvent(Component.literal(text), BossEvent.BossBarColor.GREEN, BossEvent.BossBarOverlay.PROGRESS);
+			if (bar == null) bar = new ServerBossEvent(java.util.UUID.randomUUID(), Component.literal(text), BossEvent.BossBarColor.GREEN, BossEvent.BossBarOverlay.PROGRESS);
 			bar.setName(Component.literal(text));
 			bar.setProgress(Math.max(0f, Math.min(1f, job.progress().fraction())));
 			for (ServerPlayer p : server.getPlayerList().getPlayers()) {

@@ -86,7 +86,7 @@ public final class BackupPreview {
 			lowY = level.getMinY();
 			highY = lowY;
 		}
-		int sizeX = (maxChunk.x - minChunk.x + 1) * 16, sizeZ = (maxChunk.z - minChunk.z + 1) * 16, sizeY = highY - lowY + 1;
+		int sizeX = (maxChunk.x() - minChunk.x() + 1) * 16, sizeZ = (maxChunk.z() - minChunk.z() + 1) * 16, sizeY = highY - lowY + 1;
 		BlockPos min = new BlockPos(minChunk.getMinBlockX(), lowY, minChunk.getMinBlockZ());
 
 		Map<BlockState, Integer> palette = new HashMap<>();
@@ -99,7 +99,7 @@ public final class BackupPreview {
 		long blocks = 0;
 		ListTag tiles = new ListTag();
 		for (Loaded c : chunks) {
-			int ox = (c.pos().x - minChunk.x) * 16, oz = (c.pos().z - minChunk.z) * 16;
+			int ox = (c.pos().x() - minChunk.x()) * 16, oz = (c.pos().z() - minChunk.z()) * 16;
 			for (int i = 0; i < c.sections().length; i++) {
 				LevelChunkSection section = c.sections()[i];
 				if (section == null || section.hasOnlyAir()) continue;
